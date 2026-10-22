@@ -4,6 +4,7 @@
    The accent color comes from theme.js. */
 @font-face { font-family: "Inter"; src: url(fonts/inter.woff2) format("woff2"); font-weight: 300 700; font-display: swap; }
 @font-face { font-family: "Figtree"; src: url(fonts/figtree.woff2) format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url(fonts/nunito.woff2) format("woff2"); font-weight: 200 1000; font-display: swap; }
 
 :root { color-scheme: light dark; }
 :root[data-theme="light"] { color-scheme: light; }
@@ -209,7 +210,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 .countdown { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 24px 0 8px; }
 .dial { position: relative; width: min(300px, 78vw); aspect-ratio: 1; }
 .dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.dial circle { fill: none; stroke-width: 2.4; }
+.dial circle { fill: none; stroke-width: 5; }
 .dial .track { stroke: var(--track); }
 .dial .prog { stroke: var(--focus); stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke .3s; }
 [data-phase="rest"] .prog { stroke: var(--rest); }
@@ -219,7 +220,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 [data-phase="focus"] .phase { color: var(--accent-soft); }
 [data-phase="rest"] .phase { color: var(--rest); }
 [data-phase="paused"] .phase { color: var(--paused); }
-.time { font-size: clamp(52px, 17vw, 76px); font-weight: 500; letter-spacing: -.01em; line-height: 1.05; color: var(--text); }
+.time { font-family: "Nunito", "Figtree", sans-serif; font-size: clamp(54px, 17vw, 80px); font-weight: 700; letter-spacing: 0; line-height: 1.05; color: var(--text); }
 .sub { font-size: 13px; color: var(--faint); min-height: 20px; }
 
 .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
@@ -380,6 +381,10 @@ pre#log {
 .cal-cell.out { opacity: .45; }
 .cal-cell.today { background: color-mix(in srgb, var(--hover) 30%, var(--bg)); }
 .cal-cell.sel { box-shadow: inset 0 0 0 1.5px var(--faint); }
+/* rated days: outline + light tint in the rating's color */
+.cal-cell.mood { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--m) 70%, transparent); background: color-mix(in srgb, var(--m) 9%, var(--bg)); }
+.cal-cell.mood:hover:not(:disabled) { background: color-mix(in srgb, var(--m) 16%, var(--bg)); }
+.cal-cell.mood.sel { box-shadow: inset 0 0 0 2.5px var(--m); }
 .cal-cell .c-top { display: flex; align-items: center; gap: 6px; min-height: 24px; }
 .cal-cell .c-date { font-size: 14px; font-weight: 500; color: var(--text-2); min-width: 18px; }
 .cal-cell.today .c-date { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-size: 12.5px; font-weight: 600; display: inline-grid; place-items: center; }
