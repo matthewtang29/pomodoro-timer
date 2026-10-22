@@ -23,6 +23,7 @@ function loadTasks() {
 function saveTasks() {
   if (typeof Sync !== 'undefined') Sync.stamp('tasks');
   try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (e) {}
+  renderSideNav();
 }
 function restoreTasks(data) {
   tasks = data;
@@ -316,7 +317,7 @@ function renderTasks() {
     const due = sortTasks(open.filter(t => t.due === today));
     if (overdue.length) groups.push({ title: 'Overdue', cls: 'overdue', items: overdue });
     groups.push({ title: 'Today', sub: keyToDate(today).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
-      items: due, empty: 'Nothing due today. Add a task above, or check Upcoming.' });
+      items: due, empty: 'Nothing due today. Add a task below, or check Upcoming.' });
   } else if (taskView === 'upcoming') {
     const future = sortTasks(open.filter(t => t.due && t.due > today));
     const byDay = {};
@@ -355,6 +356,38 @@ function renderTasks() {
     g.items.forEach(t => sec.append(t.id === editingId ? taskEditor(t) : taskRow(t)));
     box.append(sec);
   });
+
+  // page header
+  const shown = groups.reduce((a, g) => a + g.items.length, 0);
+  const doneToday = tasks.items.filter(t => t.done && dayKey(t.done) === today).length;
+  $('taskTitle').textContent = { today: 'Today', upcoming: 'Upcoming', all: 'All tasks', done: 'Done' }[taskView];
+  $('taskSub').textContent = (projFilter ? `# ${projFilter} · ` : '')
+    + `${shown} task${shown === 1 ? '' : 's'}` + (taskView !== 'done' ? ` · ${doneToday} done today` : '');
+  renderSideNav();
+}
+
+// Sidebar: open-task count on the Tasks tab, and the project list (click to filter)
+function renderSideNav() {
+  const today = todayKey();
+  const open = tasks.items.filter(t => !t.done);
+  const dueNow = open.filter(t => t.due && t.due <= today).length;
+  $('tabTaskCount').textContent = dueNow || '';
+  const ps = projects();
+  const box = $('sideProjects');
+  box.textContent = '';
+  $('sideProjectsWrap').hidden = !ps.length;
+  ps.forEach(p => {
+    const n = open.filter(t => t.project === p).length;
+    const b = el('button', 'side-proj');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(!$('tasksView').hidden && projFilter === p));
+    b.append(el('span', 'hash', '#'), el('span', 'name', p), el('span', 'count', n ? String(n) : ''));
+    b.addEventListener('click', () => {
+      projFilter = projFilter === p && !$('tasksView').hidden ? '' : p;
+      showTab('tasks');
+    });
+    box.append(b);
+  });
 }
 
 // One task row. Used on the Tasks tab and in the Calendar day panel.
@@ -381,7 +414,6 @@ function taskRow(t, opts = {}) {
   diff.append(diffDots(t.difficulty), DIFF_LABEL[t.difficulty]);
   meta.append(diff);
   if (t.priority < 4) meta.append(el('span', 'pflag', 'P' + t.priority));
-  if (t.project) meta.append(el('span', 'proj', '# ' + t.project));
   if (t.focusSec >= 60) meta.append(el('span', null, '⏱ ' + fmtSecs(t.focusSec)));
   if (t.id === currentTaskId) meta.append(el('span', 'pflag', '● on the timer'));
   const subs = subsOf(t);
@@ -423,7 +455,9 @@ function taskRow(t, opts = {}) {
   edit.addEventListener('click', () => { editingId = t.id; if (opts.onEdit) opts.onEdit(); else renderTasks(); });
   actions.append(edit);
 
-  row.append(check, body, actions);
+  row.append(check, body);
+  if (t.project) row.append(el('span', 't-proj', '# ' + t.project));
+  row.append(actions);
   return row;
 }
 
@@ -565,6 +599,11 @@ $('addForm').addEventListener('submit', e => {
   $('qaInput').focus();
   if (t.due && t.due > todayKey() && taskView === 'today') toast(`Added to ${fmtDue(t.due)}`, 'View', () => setTaskView('upcoming'));
 });
+$('qaCancel').addEventListener('click', () => {
+  $('qaInput').value = '';
+  renderQaPreview();
+  qaDefaults();
+});
 
 // ---------------------------------------------------------------- toolbar
 function setTaskView(v) {
@@ -589,6 +628,7 @@ function renderProjectLists() {
   ps.forEach(p => sel.append(new Option('# ' + p, p)));
   sel.value = ps.includes(cur) ? cur : '';
   projFilter = sel.value;
+  renderSideNav();
 }
 
 // ---------------------------------------------------------------- timer link

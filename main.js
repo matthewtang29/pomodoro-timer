@@ -17,13 +17,15 @@ function showTab(name) {
 }
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
-// Keyboard: ←/→ moves between tabs when a tab has focus
+// Keyboard: arrow keys move between tabs when a tab has focus
 $('tabTimer').parentElement.addEventListener('keydown', e => {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const fwd = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+  if (!fwd && e.key !== 'ArrowLeft' && e.key !== 'ArrowUp') return;
   const tabs = [...document.querySelectorAll('[data-tab]')];
   const i = tabs.indexOf(document.activeElement);
   if (i < 0) return;
-  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  e.preventDefault();
+  const next = tabs[(i + (fwd ? 1 : tabs.length - 1)) % tabs.length];
   next.focus();
   showTab(next.dataset.tab);
 });

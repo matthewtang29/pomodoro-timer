@@ -221,8 +221,7 @@ function render() {
   const s = settings();
 
   // header
-  $('connectBtn').textContent = connected ? 'Disconnect' : 'Connect';
-  $('connectBtn').classList.toggle('primary', !connected);
+  $('connectBtn').textContent = connected ? 'Disconnect' : 'Connect timer';
   $('connectBtn').title = connected ? 'Disconnect the timer' : 'Connect your Pomodoro timer over USB';
   const pill = $('pill');
   const shared = !connected && ready && status.src === 'REMOTE' && !IDLE.includes(st);
@@ -230,7 +229,14 @@ function render() {
   pill.textContent = connected ? (ready ? 'Timer connected' : 'Waiting for timer…') : shared ? 'Synced session' : 'Built-in timer';
   pill.title = connected ? '' : shared ? 'This session was started on another of your devices. You can pause or exit it here too.'
     : 'No timer connected: sessions run in the app. Connect to use your Pomodoro timer.';
+  $('devSub').textContent = connected ? (ready ? 'Connected over USB' : 'Connecting…') : 'Device not connected';
   $('soundRow').hidden = local;
+  // page subtitle: date and today's focus time
+  if (typeof peekDay === 'function') {
+    const f = peekDay(dayKey(Date.now())).focus;
+    $('timerToday').textContent = new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+      + (f >= 60 ? ` · ${fmtSecs(f)} focused today` : '');
+  }
 
   // mute toggle (reflects the timer's actual setting)
   const muted = ready && status.muted === 1;
@@ -241,9 +247,10 @@ function render() {
   // panels
   const idle = !ready || IDLE.includes(st);
   $('setupPanel').hidden = !idle;
+  $('setupFields').hidden = !idle;
   $('continuePanel').hidden = st !== 'CONTINUE';
   $('sessionPanel').hidden = idle || st === 'CONTINUE';
-  $('setupPanel').querySelectorAll('button, input').forEach(el => el.disabled = !ready);
+  document.querySelectorAll('#setupPanel button, #setupFields button, #setupFields input').forEach(el => el.disabled = !ready);
 
   const paused = st === 'PAUSED_FOCUS' || st === 'PAUSED_REST';
   $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';

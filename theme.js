@@ -3,10 +3,10 @@
 // The <head> of index.html applies the saved theme before the page draws.
 
 const THEME_KEY = 'pomodoro-theme';
-const DEFAULT_ACCENT = '#d04a44';
+const DEFAULT_ACCENT = '#c4473b';
 const ACCENTS = [
-  ['Pomegranate', '#d04a44'], ['Robot teal', '#3a9e94'], ['Visor orange', '#dd8a3e'], ['Gear yellow', '#e6c260'],
-  ['Ocean', '#3b6fb3'], ['Grape', '#6b56a8'], ['Forest', '#478f5c'], ['Graphite', '#4b5563'],
+  ['Pomegranate', '#c4473b'], ['Periwinkle', '#5b78d6'], ['Sage', '#4f9a68'], ['Amber', '#d0802f'],
+  ['Teal', '#3a9e94'], ['Grape', '#7b62b8'], ['Rose', '#c2507e'], ['Graphite', '#5b6170'],
 ];
 let theme = { mode: 'system', accent: null };
 try { theme = { ...theme, ...JSON.parse(localStorage.getItem(THEME_KEY) || '{}') }; } catch (e) {}
@@ -30,9 +30,9 @@ function applyTheme() {
   } else {
     ['--accent', '--focus', '--accent-text'].forEach(p => root.style.removeProperty(p));
   }
-  // title bar color of the installed app
+  // title bar color of the installed app: matches the sidebar
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = theme.accent || DEFAULT_ACCENT;
+  if (meta) meta.content = getComputedStyle(root).getPropertyValue('--side').trim() || '#252525';
   paintThemeMenu();
 }
 

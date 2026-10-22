@@ -75,6 +75,7 @@ function loadEditor(k) {
   $('jDate').value = k;
   $('jDate').max = dayKey(Date.now());
   const today = dayKey(Date.now());
+  $('jHeading').textContent = keyToDate(k).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
   $('jTitle').textContent = k === today ? 'How was today?'
     : k === shiftKey(today, -1) ? 'How was yesterday?'
     : `How was ${keyToDate(k).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}?`;

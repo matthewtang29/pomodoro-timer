@@ -183,8 +183,8 @@ function renderAnalytics() {
   const yest = shiftKey(today, -1);
   const T = peekDay(today), Y = peekDay(yest);
 
-  $('todayLabel').textContent = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   renderScoreCard(today);
+  renderScoreWeek(today);
 
   // 7-day averages over days you actually studied (excluding today)
   const prior = [];
@@ -214,17 +214,19 @@ function renderAnalytics() {
     box.append(tile);
   });
 
-  // focus rate + streak
-  const desk = deskOf(T);
+  // streak in the header, focus rate under the tiles
   let streak = 0;
   let k = T.focus >= 60 ? today : yest;
   while (peekDay(k).focus >= 60) { streak++; k = shiftKey(k, -1); }
+  $('todayLabel').textContent = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+    + (streak ? ` · ${streak}-day focus streak` : '');
+  const desk = deskOf(T);
   const line = $('summaryLine');
   line.textContent = '';
+  line.hidden = desk < 60;
   if (desk >= 60) {
-    line.append('Focused for ', el('b', null, Math.round(T.focus / desk * 100) + '%'), ' of your desk time today · ');
+    line.append('Focused for ', el('b', null, Math.round(T.focus / desk * 100) + '%'), ' of your desk time today.');
   }
-  line.append('Streak: ', el('b', null, streak === 1 ? '1 day' : `${streak} days`), ' with focus time');
 
   renderSessions(T, $('sessionList'), 'No sessions yet today. Sessions you run while connected will show up here.');
   renderWeek(today);
@@ -256,6 +258,25 @@ function renderScoreCard(today) {
     { label: 'Tasks done', value: null, detail: 'No tasks due' },
     { label: 'Session quality', value: null, detail: 'No sessions' },
   ] });
+}
+
+// Daily score bars for the last 7 days; today uses the accent color
+function renderScoreWeek(today) {
+  const box = $('scoreWeek');
+  box.textContent = '';
+  const said = [];
+  for (let i = 6; i >= 0; i--) {
+    const k = shiftKey(today, -i);
+    const r = dayScore(k);
+    const name = i === 0 ? 'Today' : WD[keyToDate(k).getDay()];
+    const col = el('div', 'sw-col' + (i === 0 ? ' today' : ''));
+    const bar = el('i', 'sw-bar' + (r ? '' : ' none'));
+    if (r) bar.style.height = Math.max(2, Math.round(r.score * 1.1)) + 'px';
+    col.append(el('span', 'sw-val', r ? String(r.score) : '–'), bar, el('span', 'sw-day', name));
+    box.append(col);
+    said.push(`${name} ${r ? r.score : 'no data'}`);
+  }
+  box.setAttribute('aria-label', 'Daily scores: ' + said.join(', '));
 }
 
 function renderSessions(T, list, emptyText) {
