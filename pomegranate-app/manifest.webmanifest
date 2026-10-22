@@ -1,0 +1,74 @@
+{
+  "name": "Pomegranate",
+  "short_name": "Pomegranate",
+  "description": "Pomegranate: control an Arduino Pomodoro timer over USB, plan tasks, and track study time.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2eee6",
+  "theme_color": "#d04a44",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start 25/5 session",
+      "short_name": "Focus 25/5",
+      "url": "./?do=focus",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Add a task",
+      "short_name": "Add task",
+      "url": "./?do=add",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "url": "./#tasks"
+    },
+    {
+      "name": "Calendar",
+      "url": "./#calendar"
+    },
+    {
+      "name": "Journal",
+      "url": "./#journal"
+    },
+    {
+      "name": "Analytics",
+      "url": "./#analytics"
+    }
+  ]
+}
