@@ -140,6 +140,23 @@ function addTask(fields) {
   return t;
 }
 
+// Removes a project: its tasks stay, they just lose the #tag (Undo puts it back)
+function deleteProject(p) {
+  const tagged = tasks.items.filter(t => t.project === p);
+  if (!tagged.length) return;
+  const n = tagged.filter(t => !t.done).length;
+  if (!confirm(`Delete project "${p}"?\n\nIts ${tagged.length} task${tagged.length === 1 ? '' : 's'}${n ? ` (${n} open)` : ''} will be kept, just without a project.`)) return;
+  tagged.forEach(t => { t.project = ''; });
+  if (projFilter === p) projFilter = '';
+  saveTasks();
+  refreshTaskViews();
+  toast(`Deleted project "${p}"`, 'Undo', () => {
+    tagged.forEach(t => { t.project = p; });
+    saveTasks();
+    refreshTaskViews();
+  });
+}
+
 function setTaskDone(id, done) {
   const t = taskById(id);
   if (!t) return;
@@ -386,8 +403,16 @@ function renderSideNav() {
       projFilter = projFilter === p && !$('tasksView').hidden ? '' : p;
       showTab('tasks');
     });
-    box.append(b);
+    const del = el('button', 'side-proj-del', '×');
+    del.type = 'button';
+    del.title = `Delete project "${p}"`;
+    del.setAttribute('aria-label', `Delete project ${p}`);
+    del.addEventListener('click', () => deleteProject(p));
+    const row = el('div', 'side-proj-row');
+    row.append(b, del);
+    box.append(row);
   });
+  $('projDelete').hidden = !projFilter;
 }
 
 // One task row. Used on the Tasks tab and in the Calendar day panel.
@@ -615,6 +640,7 @@ function setTaskView(v) {
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setTaskView(b.dataset.view)));
 $('projFilter').addEventListener('change', () => { projFilter = $('projFilter').value; renderTasks(); });
+$('projDelete').addEventListener('click', () => { if (projFilter) deleteProject(projFilter); });
 
 function renderProjectLists() {
   const ps = projects();

@@ -547,7 +547,7 @@ function download(name, text, type) {
 }
 
 $('exportBtn').addEventListener('click', () => {
-  const rows = [['date', 'score', 'day_rating', 'desk_minutes', 'focus_minutes', 'break_minutes', 'paused_other_minutes', 'focus_blocks', 'sessions', 'tasks_done']];
+  const rows = [['date', 'score', 'day_rating', 'day_rating_high', 'desk_minutes', 'focus_minutes', 'break_minutes', 'paused_other_minutes', 'focus_blocks', 'sessions', 'tasks_done']];
   const keys = typeof Sync !== 'undefined' ? Sync.allDayKeys() : new Set(Object.keys(store.days));
   (typeof tasks !== 'undefined' ? tasks.items : []).forEach(t => { if (t.done) keys.add(dayKey(t.done)); });
   if (typeof journal !== 'undefined') Object.keys(journal.entries).forEach(k => keys.add(k));
@@ -556,7 +556,7 @@ $('exportBtn').addEventListener('click', () => {
     const m = v => (v / 60).toFixed(1);
     const sc = dayScore(k);
     const je = typeof journalEntry === 'function' ? journalEntry(k) : null;
-    rows.push([k, sc ? sc.score : '', je ? je.rating : '', m(deskOf(d)), m(d.focus), m(d.brk), m(d.other), d.blocks,
+    rows.push([k, sc ? sc.score : '', je ? ratingLo(je) : '', je ? ratingHi(je) : '', m(deskOf(d)), m(d.focus), m(d.brk), m(d.other), d.blocks,
       (d.sessions || []).length, taskStatsForDay(k).doneCount]);
   });
   download(`pomodoro-history-${dayKey(Date.now())}.csv`, rows.map(r => r.join(',')).join('\n'), 'text/csv');

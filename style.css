@@ -169,6 +169,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 .side-proj .hash { color: var(--faint); }
 .side-proj .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-proj[aria-pressed="true"] { background: var(--hover); color: var(--text); }
+.side-proj-row { display: flex; align-items: center; gap: 2px; }
+.side-proj-row .side-proj { flex: 1; min-width: 0; }
+.side-proj-del { flex: none; width: 26px; height: 26px; padding: 0; border: 0; font-size: 16px; line-height: 1; color: var(--faint); opacity: 0; }
+.side-proj-row:hover .side-proj-del, .side-proj-del:focus-visible { opacity: 1; }
+.side-proj-del:hover:not(:disabled) { color: var(--down); background: var(--hover); }
+@media (hover: none) { .side-proj-del { opacity: .6; } }
 
 .side-foot { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 10px; border-top: 1px solid var(--line); }
 .side-bot { width: 28px; height: 28px; flex: none; color: var(--faint); }
@@ -381,10 +387,19 @@ pre#log {
 .cal-cell.out { opacity: .45; }
 .cal-cell.today { background: color-mix(in srgb, var(--hover) 30%, var(--bg)); }
 .cal-cell.sel { box-shadow: inset 0 0 0 1.5px var(--faint); }
-/* rated days: outline + light tint in the rating's color */
-.cal-cell.mood { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--m) 70%, transparent); background: color-mix(in srgb, var(--m) 9%, var(--bg)); }
-.cal-cell.mood:hover:not(:disabled) { background: color-mix(in srgb, var(--m) 16%, var(--bg)); }
-.cal-cell.mood.sel { box-shadow: inset 0 0 0 2.5px var(--m); }
+/* rated days: border + light tint in the rating's color; a range (--m2 set) blends low → high */
+.cal-cell.mood {
+  border: 2px solid transparent; padding: 6px 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--m) 9%, var(--bg)), color-mix(in srgb, var(--m2, var(--m)) 9%, var(--bg))) padding-box,
+    linear-gradient(135deg, var(--m), var(--m2, var(--m))) border-box;
+}
+.cal-cell.mood:hover:not(:disabled) {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--m) 16%, var(--bg)), color-mix(in srgb, var(--m2, var(--m)) 16%, var(--bg))) padding-box,
+    linear-gradient(135deg, var(--m), var(--m2, var(--m))) border-box;
+}
+.cal-cell.mood.sel { border-width: 3px; padding: 5px 7px; box-shadow: none; }
 .cal-cell .c-top { display: flex; align-items: center; gap: 6px; min-height: 24px; }
 .cal-cell .c-date { font-size: 14px; font-weight: 500; color: var(--text-2); min-width: 18px; }
 .cal-cell.today .c-date { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-size: 12.5px; font-weight: 600; display: inline-grid; place-items: center; }
@@ -392,6 +407,7 @@ pre#log {
 .c-mood { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); background: none !important; padding: 0; font-variant-numeric: tabular-nums; }
 .c-mood::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--m); }
 .c-mood small { display: none; }
+.c-mood.m-range::before { background: linear-gradient(90deg, var(--m) 50%, var(--m2) 50%); }
 .c-score { margin-left: auto; font-size: 12px; color: var(--muted) !important; background: none !important; padding: 0; font-variant-numeric: tabular-nums; }
 .c-task { font-size: 11.5px; line-height: 1.4; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .c-task i { display: none; }
@@ -428,6 +444,16 @@ pre#log {
   display: inline-block; background: var(--m); color: var(--m-ink);
   font-size: 12px; font-weight: 600; border-radius: 4px; padding: 0 7px; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
+/* rating ranges (e.g. 4–7): low color → high color */
+.mood-badge.m-range, .j-day.m-range b {
+  background: linear-gradient(90deg, var(--m), var(--m2)); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35);
+}
+.j-day.m-range b { background: linear-gradient(135deg, var(--m), var(--m2)); }
+.j-entry.m-range, .j-entry.m-range.sel, .j-entry.m-range:hover:not(:disabled), .day-journal.m-range {
+  border-left-color: transparent;
+  background-image: linear-gradient(180deg, var(--m), var(--m2));
+  background-origin: border-box; background-size: 3px 100%; background-position: left top; background-repeat: no-repeat;
+}
 .j-editor { display: flex; flex-direction: column; gap: 10px; }
 .j-editor .page-head { margin-bottom: 18px; }
 .j-rating-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
@@ -439,6 +465,9 @@ pre#log {
 }
 .j-rating button:hover:not(:disabled) { border-color: var(--m); background: transparent; }
 .j-rating button[aria-checked="true"] { background: var(--m); border-color: var(--m); color: var(--m-ink); }
+.j-rating button.in-range { background: color-mix(in srgb, var(--m) 22%, transparent); border-color: color-mix(in srgb, var(--m) 55%, transparent); color: var(--text); }
+.j-range-btn { height: 26px; padding: 0 10px; margin: 0 auto 0 4px; font-size: 12px; color: var(--muted); }
+.j-range-btn[aria-pressed="true"] { background: var(--hover); border-color: var(--faint); color: var(--text); }
 .j-notes { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; font-size: 13px; color: var(--muted); }
 #jText {
   width: 100%; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;
@@ -656,6 +685,8 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
   .j-rating { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .j-strip { grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 10px; }
   .cal-cell { min-height: 58px; padding: 5px; }
+  .cal-cell.mood { padding: 3px; }
+  .cal-cell.mood.sel { padding: 2px; }
   .cal-cell .c-task, .cal-cell .c-more { display: none; }
   .c-dots { display: flex; }
   .cal-cell .c-top { flex-direction: column; align-items: flex-start; gap: 2px; }

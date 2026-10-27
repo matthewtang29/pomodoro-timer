@@ -13,7 +13,7 @@
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/nunito.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.10.22b">
+<link rel="stylesheet" href="style.css?v=2026.10.27a">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -200,7 +200,7 @@
             <span class="total" id="totalHint"></span>
             <button type="button" data-preset="25,5,4">Classic 25/5 × 4</button>
             <button type="button" data-preset="50,10,3">Deep work 50/10 × 3</button>
-            <button type="button" data-preset="15,5,6">Sprints 15/5 × 6</button>
+            <button type="button" data-preset="90,30,2">Exam 90/30 × 2</button>
           </div>
         </div>
       </section>
@@ -241,6 +241,7 @@
         <p id="taskSub"></p>
       </div>
       <select id="projFilter" aria-label="Project filter"></select>
+      <button type="button" id="projDelete" class="small danger" hidden title="Delete this project (its tasks are kept)">Delete project</button>
       <div class="seg" id="taskViewSeg" role="group" aria-label="Task view">
         <button type="button" data-view="today" aria-pressed="true">Today</button>
         <button type="button" data-view="upcoming" aria-pressed="false">Upcoming</button>
@@ -323,6 +324,7 @@
       </header>
       <div class="j-rating-head">
         <span>Rate your day</span>
+        <button type="button" class="small j-range-btn" id="jRangeBtn" aria-pressed="false" title="Rate the day as a range, e.g. 4 to 7, for a day that had highs and lows">Range</button>
         <span class="j-rating-label" id="jRatingLabel">Pick a number from 1 to 10</span>
       </div>
       <div class="j-rating" id="jRating" role="radiogroup" aria-label="Day rating out of 10"></div>
@@ -473,19 +475,19 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.10.22b"></script>
-<script src="localtimer.js?v=2026.10.22b"></script>
-<script src="notify.js?v=2026.10.22b"></script>
-<script src="score.js?v=2026.10.22b"></script>
-<script src="analytics.js?v=2026.10.22b"></script>
-<script src="tasks.js?v=2026.10.22b"></script>
-<script src="calendar.js?v=2026.10.22b"></script>
-<script src="journal.js?v=2026.10.22b"></script>
-<script src="sync.js?v=2026.10.22b"></script>
-<script src="livesync.js?v=2026.10.22b"></script>
-<script src="push.js?v=2026.10.22b"></script>
-<script src="theme.js?v=2026.10.22b"></script>
-<script src="shortcuts.js?v=2026.10.22b"></script>
-<script src="main.js?v=2026.10.22b"></script>
+<script src="app.js?v=2026.10.27a"></script>
+<script src="localtimer.js?v=2026.10.27a"></script>
+<script src="notify.js?v=2026.10.27a"></script>
+<script src="score.js?v=2026.10.27a"></script>
+<script src="analytics.js?v=2026.10.27a"></script>
+<script src="tasks.js?v=2026.10.27a"></script>
+<script src="calendar.js?v=2026.10.27a"></script>
+<script src="journal.js?v=2026.10.27a"></script>
+<script src="sync.js?v=2026.10.27a"></script>
+<script src="livesync.js?v=2026.10.27a"></script>
+<script src="push.js?v=2026.10.27a"></script>
+<script src="theme.js?v=2026.10.27a"></script>
+<script src="shortcuts.js?v=2026.10.27a"></script>
+<script src="main.js?v=2026.10.27a"></script>
 </body>
 </html>

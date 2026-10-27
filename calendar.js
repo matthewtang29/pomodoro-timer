@@ -43,9 +43,10 @@ function renderCalendar() {
     const sc = calMode !== 'mood' ? dayScore(k) : null;
     const je = calMode !== 'score' && typeof journalEntry === 'function' ? journalEntry(k) : null;
     if (je) {
-      cell.classList.add('mood', `m-${moodBand(je.rating)}`);
-      const mb = moodBadge(je.rating, 'c-mood');
-      mb.textContent = String(je.rating);
+      cell.classList.add('mood');
+      paintMood(cell, ratingLo(je), ratingHi(je));
+      const mb = moodBadge(ratingLo(je), 'c-mood', ratingHi(je));
+      mb.textContent = ratingText(ratingLo(je), ratingHi(je));
       mb.append(el('small', 'of10', '/10'));   // hidden on narrow screens
       badges.append(mb);
     }
@@ -69,7 +70,7 @@ function renderCalendar() {
     }
 
     const label = [d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })];
-    if (je) label.push(`day rated ${je.rating} out of 10`);
+    if (je) label.push(`day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10`);
     if (sc) label.push(`productivity score ${sc.score}`);
     if (due.length) label.push(`${due.length} task${due.length > 1 ? 's' : ''} due`);
     cell.setAttribute('aria-label', label.join(', '));
@@ -107,11 +108,12 @@ function renderCalDay() {
   // journal entry for the day
   const je = typeof journalEntry === 'function' ? journalEntry(k) : null;
   if (je || k <= today) {
-    const jbox = el('div', 'day-journal' + (je ? ` m-${moodBand(je.rating)}` : ''));
+    const jbox = el('div', 'day-journal');
+    if (je) paintMood(jbox, ratingLo(je), ratingHi(je));
     const jh = el('div', 'day-journal-head');
     const jt = el('b', null, 'Journal');
     jh.append(jt);
-    if (je) jh.append(moodBadge(je.rating));
+    if (je) jh.append(moodBadge(ratingLo(je), null, ratingHi(je)));
     const jbtn = el('button', 'small', je ? 'Edit' : 'Write about this day');
     jbtn.type = 'button';
     jbtn.addEventListener('click', () => openJournal(k));

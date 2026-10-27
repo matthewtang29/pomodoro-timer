@@ -6,7 +6,10 @@
 const JOURNAL_KEY = 'pomodoro-journal-v1';
 let journal = loadJournal();
 let jDate = dayKey(Date.now());
-let jRating = null;
+let jRating = null;     // low end of the rating (or the only value)
+let jHigh = null;       // high end when the day is rated as a range, e.g. 4–7
+let jRange = false;     // range mode in the picker
+let jRangeStart = null; // first click of a range, waiting for the second
 let jDirty = false;
 let jAutoTimer = null;
 let jShowAll = false;
@@ -35,9 +38,28 @@ function moodBand(r) { return r <= 3 ? 'red' : r <= 5 ? 'orange' : r <= 8 ? 'yel
 const MOOD_WORD = { red: 'Rough day', orange: 'So-so day', yellow: 'Good day', green: 'Great day' };
 const RATING_WORD = ['', 'Awful', 'Really bad', 'Bad', 'Meh', 'Okay', 'Decent', 'Good', 'Really good', 'Great', 'Amazing'];
 
-function moodBadge(r, cls) {
-  const b = el('span', `${cls || 'mood-badge'} m-${moodBand(r)}`, `${r}/10`);
-  b.title = `Day rating ${r}/10 · ${MOOD_WORD[moodBand(r)]}`;
+// An entry's rating as low/high (same number when it isn't a range)
+function ratingLo(e) { return e.rating; }
+function ratingHi(e) { return e.ratingHigh > e.rating ? e.ratingHigh : e.rating; }
+function ratingMid(e) { return (ratingLo(e) + ratingHi(e)) / 2; }
+function ratingText(lo, hi) { return hi && hi !== lo ? `${lo}–${hi}` : String(lo); }
+
+// Puts the range's colors on an element: class m-<low band> sets --m, and --m2 is the high end's color
+function paintMood(node, lo, hi) {
+  node.classList.add(`m-${moodBand(lo)}`);
+  if (hi && hi !== lo) {
+    node.classList.add('m-range');
+    node.style.setProperty('--m2', `var(--m-${moodBand(hi)})`);
+    node.style.setProperty('--m2-ink', `var(--m-${moodBand(hi)}-ink)`);
+  }
+  return node;
+}
+
+function moodBadge(r, cls, hi) {
+  const b = paintMood(el('span', cls || 'mood-badge', `${ratingText(r, hi)}/10`), r, hi);
+  b.title = hi && hi !== r
+    ? `Day rating ${r}–${hi}/10 · ${MOOD_WORD[moodBand(r)]} to ${MOOD_WORD[moodBand(hi)].toLowerCase()}`
+    : `Day rating ${r}/10 · ${MOOD_WORD[moodBand(r)]}`;
   return b;
 }
 
@@ -52,25 +74,52 @@ function buildRatingPicker() {
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', `${i} out of 10 – ${RATING_WORD[i]}`);
     b.addEventListener('click', () => {
-      jRating = i;
+      if (!jRange) {
+        jRating = i; jHigh = null;
+      } else if (jRangeStart == null) {
+        // first click of a range: wait for the other end
+        jRangeStart = i; jRating = i; jHigh = null;
+      } else {
+        jRating = Math.min(jRangeStart, i); jHigh = Math.max(jRangeStart, i);
+        if (jHigh === jRating) jHigh = null;
+        jRangeStart = null;
+      }
       markDirty();
       paintRating();
     });
     box.append(b);
   }
 }
+function setRangeMode(on) {
+  jRange = on;
+  jRangeStart = null;
+  $('jRangeBtn').setAttribute('aria-pressed', String(on));
+  if (!on && jHigh) { jHigh = null; markDirty(); }
+  paintRating();
+}
 function paintRating() {
-  $('jRating').querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(Number(b.dataset.v) === jRating)));
+  const hi = jHigh || jRating;
+  $('jRating').querySelectorAll('button').forEach(b => {
+    const v = Number(b.dataset.v);
+    b.setAttribute('aria-checked', String(v === jRating || v === jHigh));
+    b.classList.toggle('in-range', !!jHigh && v > jRating && v < jHigh);
+  });
   const lab = $('jRatingLabel');
   lab.textContent = '';
-  if (jRating) lab.append(moodBadge(jRating), ` ${RATING_WORD[jRating]}`);
-  else lab.textContent = 'Pick a number from 1 to 10';
+  if (jRange && jRangeStart != null) lab.append(moodBadge(jRating), ' Now pick the other end');
+  else if (jRating && jHigh) lab.append(moodBadge(jRating, null, jHigh), ` ${RATING_WORD[jRating]} to ${RATING_WORD[hi].toLowerCase()}`);
+  else if (jRating) lab.append(moodBadge(jRating), ` ${RATING_WORD[jRating]}`);
+  else lab.textContent = jRange ? 'Pick the low end, then the high end' : 'Pick a number from 1 to 10';
 }
 
 function loadEditor(k) {
   jDate = k;
   const e = journalEntry(k);
-  jRating = e ? e.rating : null;
+  jRating = e ? ratingLo(e) : null;
+  jHigh = e && ratingHi(e) !== ratingLo(e) ? ratingHi(e) : null;
+  jRange = !!jHigh;
+  jRangeStart = null;
+  $('jRangeBtn').setAttribute('aria-pressed', String(jRange));
   $('jText').value = e ? e.text : '';
   $('jDate').value = k;
   $('jDate').max = dayKey(Date.now());
@@ -100,7 +149,7 @@ function markDirty() {
   setStatus(jRating ? 'Unsaved changes…' : 'Rate the day to save');
   // auto-save shortly after you stop typing, once the day has a rating
   clearTimeout(jAutoTimer);
-  if (jRating) jAutoTimer = setTimeout(() => saveEntry(true), 1500);
+  if (jRating && jRangeStart == null) jAutoTimer = setTimeout(() => saveEntry(true), 1500);
 }
 
 function saveEntry(auto) {
@@ -111,13 +160,14 @@ function saveEntry(auto) {
   }
   const existed = !!journalEntry(jDate);
   journal.entries[jDate] = { rating: jRating, text: $('jText').value.trim(), updated: Date.now() };
+  if (jHigh && jHigh > jRating) journal.entries[jDate].ratingHigh = jHigh;
   saveJournal();
   jDirty = false;
   $('jDelete').hidden = false;
   $('jSave').textContent = 'Update entry';
   setStatus(`Saved ${fmtSavedTime(Date.now())}`);
   renderJournalLists();
-  if (!auto && !existed) toast(`Saved · ${MOOD_WORD[moodBand(jRating)]}`);
+  if (!auto && !existed) toast(`Saved · ${MOOD_WORD[moodBand(jHigh ? (jRating + jHigh) / 2 : jRating)]}`);
   return true;
 }
 
@@ -161,18 +211,21 @@ function renderJournalLists() {
     const k = shiftKey(today, -i);
     const e = journalEntry(k);
     const d = keyToDate(k);
-    const cell = el('button', 'j-day' + (e ? ` m-${moodBand(e.rating)}` : ' empty') + (k === jDate ? ' sel' : ''));
+    const cell = el('button', 'j-day' + (e ? '' : ' empty') + (k === jDate ? ' sel' : ''));
+    if (e) paintMood(cell, ratingLo(e), ratingHi(e));
     cell.type = 'button';
-    cell.append(el('b', null, e ? String(e.rating) : '–'), el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
-    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${e ? `rated ${e.rating} out of 10` : 'no entry'}`);
-    cell.title = e ? `${fmtDay(k, today)} · ${e.rating}/10` : `${fmtDay(k, today)} · no entry`;
+    const txt = e ? ratingText(ratingLo(e), ratingHi(e)) : '';
+    cell.append(el('b', null, e ? txt : '–'), el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
+    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${e ? `rated ${txt} out of 10` : 'no entry'}`);
+    cell.title = e ? `${fmtDay(k, today)} · ${txt}/10` : `${fmtDay(k, today)} · no entry`;
     cell.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     strip.append(cell);
-    if (e) vals.push(e.rating);
+    if (e) vals.push(ratingMid(e));
   }
+  // a range counts as its midpoint in the averages
   const avg = arr => (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
   const last30 = [];
-  for (let i = 0; i < 30; i++) { const e = journalEntry(shiftKey(today, -i)); if (e) last30.push(e.rating); }
+  for (let i = 0; i < 30; i++) { const e = journalEntry(shiftKey(today, -i)); if (e) last30.push(ratingMid(e)); }
   const parts = [];
   if (vals.length) parts.push(`14-day avg ${avg(vals)}`);
   if (last30.length) parts.push(`30-day avg ${avg(last30)}`);
@@ -189,10 +242,10 @@ function renderJournalLists() {
   const shown = jShowAll ? keys : keys.slice(0, 20);
   shown.forEach(k => {
     const e = journal.entries[k];
-    const item = el('button', `j-entry m-${moodBand(e.rating)}` + (k === jDate ? ' sel' : ''));
+    const item = paintMood(el('button', 'j-entry' + (k === jDate ? ' sel' : '')), ratingLo(e), ratingHi(e));
     item.type = 'button';
     const head = el('div', 'j-entry-head');
-    head.append(el('b', null, fmtDay(k, today)), moodBadge(e.rating));
+    head.append(el('b', null, fmtDay(k, today)), moodBadge(ratingLo(e), null, ratingHi(e)));
     item.append(head, el('p', 'j-entry-text', e.text || 'No notes'));
     item.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     list.append(item);
@@ -216,6 +269,7 @@ function openJournal(k) {
 
 // ---------------------------------------------------------------- events
 buildRatingPicker();
+$('jRangeBtn').addEventListener('click', () => setRangeMode(!jRange));
 $('jText').addEventListener('input', markDirty);
 $('jDate').addEventListener('change', () => {
   const k = $('jDate').value;
