@@ -156,7 +156,7 @@ function renderCalDay() {
   if (k >= today) {
     const form = el('form', 'day-add');
     const input = el('input');
-    input.placeholder = `Add a task for ${fmtDue(k)}… (p1 d4 #course work too)`;
+    input.placeholder = `Add a task for ${fmtDue(k)}… (!high d4 #course work too)`;
     input.setAttribute('aria-label', 'New task for this day');
     const btn = el('button', 'small primary', 'Add');
     btn.type = 'submit';
@@ -165,7 +165,7 @@ function renderCalDay() {
       e.preventDefault();
       const p = parseQuickAdd(input.value);
       if (!p.title) return;
-      addTask({ title: p.title, due: p.due || k, priority: p.priority, difficulty: p.difficulty, project: p.project });
+      addTask({ title: p.title, due: p.due || k, priority: p.priority, difficulty: p.difficulty, project: p.project, repeat: p.repeat });
       renderCalendar();
       setTimeout(() => { const i = $('calDay').querySelector('.day-add input'); if (i) i.focus(); }, 0);
     });

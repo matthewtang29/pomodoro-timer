@@ -26,7 +26,8 @@ function quickAddPreview() {
   const due = p.due || todayKey();
   box.append(el('span', 'chip title', p.title ? `“${p.title}”` : 'Add a task name'));
   box.append(el('span', 'chip', '📅 ' + fmtDue(due)));
-  box.append(el('span', 'chip', 'P' + (p.priority || 4)));
+  if (p.repeat) box.append(el('span', 'chip', '🔁 ' + REPEAT_LABEL[p.repeat]));
+  box.append(el('span', 'chip pri-chip ' + ((p.priority || 4) <= 2 ? 'hi' : 'lo'), priLabel(p.priority || 4)));
   const d = p.difficulty || 3;
   const dc = el('span', 'chip'); dc.append(diffDots(d), DIFF_LABEL[d]); box.append(dc);
   if (p.project) box.append(el('span', 'chip', '# ' + p.project));
@@ -46,7 +47,7 @@ $('qaDialogForm').addEventListener('submit', e => {
   e.preventDefault();
   const p = parseQuickAdd($('qaDialogInput').value);
   if (!p.title) { $('qaDialogInput').focus(); return; }
-  const t = addTask({ title: p.title, due: p.due || todayKey(), priority: p.priority, difficulty: p.difficulty, project: p.project });
+  const t = addTask({ title: p.title, due: p.due || todayKey(), priority: p.priority, difficulty: p.difficulty, project: p.project, repeat: p.repeat });
   $('qaDialog').close();
   toast(`Added “${t.title}” · ${fmtDue(t.due)}`, 'View', () => showTab('tasks'));
 });
@@ -67,6 +68,17 @@ document.addEventListener('keydown', e => {
     startClassicSession();
   }
 });
+
+// ---------------------------------------------------------------- no zooming
+// The layout is built for 100%, so page zoom is turned off: Ctrl/⌘ + plus/minus/0,
+// Ctrl/⌘ + scroll wheel or trackpad pinch, and pinch / double-tap on iPhone
+// (the viewport tag and touch-action in style.css cover the rest).
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && ['=', '+', '-', '_', '0'].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
+['gesturestart', 'gesturechange', 'gestureend'].forEach(n => document.addEventListener(n, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
 // ---------------------------------------------------------------- taskbar / home-screen shortcuts
 // The app is opened as ./?do=focus or ./?do=add from the shortcut menu

@@ -3,10 +3,10 @@
 // The <head> of index.html applies the saved theme before the page draws.
 
 const THEME_KEY = 'pomodoro-theme';
-const DEFAULT_ACCENT = '#c4473b';
+const DEFAULT_ACCENT = '#8fb996';   // sage (the stylesheet uses a lighter sage in dark mode)
 const ACCENTS = [
-  ['Pomegranate', '#c4473b'], ['Periwinkle', '#5b78d6'], ['Sage', '#4f9a68'], ['Amber', '#d0802f'],
-  ['Teal', '#3a9e94'], ['Grape', '#7b62b8'], ['Rose', '#c2507e'], ['Graphite', '#5b6170'],
+  ['Sage', '#8fb996'], ['Peach', '#f4a582'], ['Periwinkle', '#8ea6e8'], ['Teal', '#7fbfb6'],
+  ['Lavender', '#b3a2dc'], ['Rose', '#e3a1b8'], ['Sand', '#d9c08f'], ['Pomegranate', '#c4473b'],
 ];
 let theme = { mode: 'system', accent: null };
 try { theme = { ...theme, ...JSON.parse(localStorage.getItem(THEME_KEY) || '{}') }; } catch (e) {}
@@ -67,27 +67,20 @@ $('customColor').addEventListener('input', () => { theme.accent = $('customColor
 $('customColor').addEventListener('change', () => { theme.accent = $('customColor').value; saveTheme(); });
 $('themeReset').addEventListener('click', () => { theme = { mode: 'system', accent: null }; saveTheme(); });
 
-// open / close the menu
+// open / close settings: a solid full-screen page over the app until Done (or Esc)
+document.body.append($('themeMenu'));   // out of the sidebar so nothing in the app can show over it
 function setThemeMenu(open) {
-  const menu = $('themeMenu');
-  menu.hidden = !open;
+  $('themeMenu').hidden = !open;
   $('themeBtn').setAttribute('aria-expanded', String(open));
-  // on narrow screens, pin the menu to the screen edges just below the button
-  if (open && window.innerWidth < 600) {
-    menu.classList.add('pinned');
-    menu.style.top = ($('themeBtn').getBoundingClientRect().bottom + 8) + 'px';
-  } else {
-    menu.classList.remove('pinned');
-    menu.style.top = '';
-  }
+  document.body.style.overflow = open ? 'hidden' : '';   // the page behind doesn't scroll while it's open
+  if (open) $('themeClose').focus();
 }
-$('themeBtn').addEventListener('click', e => {
-  e.stopPropagation();
+$('themeBtn').addEventListener('click', () => {
   const opening = $('themeMenu').hidden;
   setThemeMenu(opening);
   if (opening && typeof Sync !== 'undefined' && !Sync.signedIn) Sync.prefetch();   // get sign-in ready
 });
-document.addEventListener('click', e => { if (!$('themeMenu').hidden && !e.target.closest('.theme-wrap')) setThemeMenu(false); });
+$('themeClose').addEventListener('click', () => { setThemeMenu(false); $('themeBtn').focus(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('themeMenu').hidden) { setThemeMenu(false); $('themeBtn').focus(); } });
 
 applyTheme();

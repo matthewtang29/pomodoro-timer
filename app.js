@@ -17,6 +17,7 @@ ring.style.strokeDashoffset = 0;
 
 // ---------------------------------------------------------------- settings
 const inputs = { focus: $('focusIn'), brk: $('breakIn'), cycles: $('cyclesIn') };
+let customOpen = false;   // the Custom steppers box is open
 
 function clampInput(el) {
   let v = parseInt(el.value, 10);
@@ -57,8 +58,11 @@ document.querySelectorAll('[data-step]').forEach(btn => btn.addEventListener('cl
 document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => {
   const [f, b, c] = btn.dataset.preset.split(',');
   inputs.focus.value = f; inputs.brk.value = b; inputs.cycles.value = c;
+  customOpen = false;
   saveSettings();
 }));
+// "Custom" shows the focus / break / cycles steppers
+$('customBtn').addEventListener('click', () => { customOpen = !customOpen; render(); });
 Object.values(inputs).forEach(el => el.addEventListener('change', saveSettings));
 
 // ---------------------------------------------------------------- serial
@@ -247,10 +251,19 @@ function render() {
   // panels
   const idle = !ready || IDLE.includes(st);
   $('setupPanel').hidden = !idle;
-  $('setupFields').hidden = !idle;
+  $('setupFields').hidden = !idle || !customOpen;
   $('continuePanel').hidden = st !== 'CONTINUE';
   $('sessionPanel').hidden = idle || st === 'CONTINUE';
   document.querySelectorAll('#setupPanel button, #setupFields button, #setupFields input').forEach(el => el.disabled = !ready);
+  // preset pills: highlight the one in use (or Custom); locked while a session runs
+  const key = `${s.focus},${s.brk},${s.cycles}`;
+  const presetBtns = [...document.querySelectorAll('#presetBar [data-preset]')];
+  const match = presetBtns.some(b => b.dataset.preset === key);
+  presetBtns.forEach(b => { b.setAttribute('aria-pressed', String(!customOpen && b.dataset.preset === key)); b.disabled = !idle || !ready; });
+  $('customBtn').setAttribute('aria-pressed', String(customOpen || !match));
+  $('customBtn').setAttribute('aria-expanded', String(customOpen));
+  $('customBtn').textContent = match ? 'Custom' : `Custom ${s.focus}/${s.brk} × ${s.cycles}`;
+  $('customBtn').disabled = !idle || !ready;
 
   const paused = st === 'PAUSED_FOCUS' || st === 'PAUSED_REST';
   $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
@@ -259,7 +272,13 @@ function render() {
   // dial
   const phase = ready ? (PHASES[st] || { label: st, tone: 'idle' }) : null;
   $('card').dataset.phase = phase ? phase.tone : 'idle';
-  $('phase').textContent = !ready ? 'Connecting' : phase.label;
+  // "Focus · cycle 2 of 4" while a block runs
+  const cyc = ready && status.cycles > 0 ? ` · cycle ${status.cycle} of ${status.cycles}` : ready ? ` · cycle ${status.cycle}` : '';
+  const phaseText = !ready ? 'Connecting'
+    : st === 'FOCUS' ? 'Focus' + cyc
+    : st === 'REST' ? 'Break' + cyc
+    : phase.label;
+  $('phase').textContent = phaseText;
 
   let secs, total;
   if (ready && ['GETREADY', 'FOCUS', 'REST', 'PAUSED_FOCUS', 'PAUSED_REST'].includes(st)) {
@@ -284,14 +303,22 @@ function render() {
 
   let sub = '';
   if (!ready) sub = 'Restarting the timer…';
-  else if (IDLE.includes(st)) sub = local ? 'Built-in timer · or Connect yours' : st === 'MENU' ? 'Set up a session below' : 'Start another session below';
+  else if (IDLE.includes(st)) sub = `${fmtDuration(s.focus)} focus · ${fmtDuration(s.brk)} break`;
   else if (st === 'FOCUS_DONE') sub = 'Break starts in a moment';
+  else if (st === 'FOCUS' || st === 'PAUSED_FOCUS') {
+    const last = status.cycles > 0 && status.cycle >= status.cycles;
+    sub = last ? 'Last focus block' : `Break next · ${status.break} min`;
+  } else if (st === 'REST' || st === 'PAUSED_REST') sub = `Focus next · ${status.focus} min`;
   else sub = status.cycles > 0 ? `Cycle ${status.cycle} of ${status.cycles}` : `Cycle ${status.cycle} · auto mode`;
   $('sub').textContent = sub;
 
   // stats
   $('doneStat').textContent = ready ? status.done : 0;
   $('totalStat').textContent = fmtDuration(ready ? status.total : 0);
+  if (typeof dayScore === 'function') {
+    const sc = dayScore(dayKey(Date.now()));
+    $('todayScoreStat').textContent = sc ? sc.score : '—';
+  }
 
   // tab title
   const running = ready && !IDLE.includes(st) && st !== 'CONTINUE';

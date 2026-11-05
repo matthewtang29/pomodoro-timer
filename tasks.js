@@ -41,17 +41,60 @@ const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7,
 const WD_RE = 'sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?';
 const MO_RE = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
 
+// ---------------------------------------------------------------- repeating tasks
+// A repeating task has repeat: 'daily' | 'weekdays' | 'weekly' | 'biweekly' | 'monthly'.
+// Checking it off keeps the done copy (for history and scores) and adds a fresh
+// copy due on the next date.
+const REPEAT_LABEL = { daily: 'Every day', weekdays: 'Every weekday', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
+const REPEAT_WORDS = [
+  [/\s(?:every\s+day|daily)(?=\s)/i, 'daily'],
+  [/\s(?:every\s+weekday|weekdays)(?=\s)/i, 'weekdays'],
+  [/\s(?:every\s+(?:2|two|other)\s+weeks?|biweekly|fortnightly)(?=\s)/i, 'biweekly'],
+  [/\s(?:every\s+week|weekly)(?=\s)/i, 'weekly'],
+  [/\s(?:every\s+month|monthly)(?=\s)/i, 'monthly'],
+];
+
+// One step forward from day key k
+function stepRepeat(k, repeat) {
+  const d = keyToDate(k);
+  if (repeat === 'daily') d.setDate(d.getDate() + 1);
+  else if (repeat === 'weekdays') { do d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6); }
+  else if (repeat === 'weekly') d.setDate(d.getDate() + 7);
+  else if (repeat === 'biweekly') d.setDate(d.getDate() + 14);
+  else if (repeat === 'monthly') {
+    const day = d.getDate();
+    d.setDate(1); d.setMonth(d.getMonth() + 1);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));   // Jan 31 -> Feb 28
+  }
+  return dayKey(d);
+}
+// The next due date after finishing: keeps the pattern, and skips ahead past today if it was overdue
+function nextDue(t) {
+  const today = todayKey();
+  let k = stepRepeat(t.due || today, t.repeat);
+  while (k <= today) k = stepRepeat(k, t.repeat);
+  return k;
+}
+
 // "Circuits lab report fri p1 d4 #ECE140" ->
 // { title: 'Circuits lab report', due: '2026-10-02', priority: 1, difficulty: 4, project: 'ECE140' }
 function parseQuickAdd(text) {
   let t = ` ${text} `;
   const out = {};
+  // fn returns false to leave the match alone, or a string to put in its place
   const take = (re, fn) => {
-    t = t.replace(re, (...m) => (fn(...m) === false ? m[0] : ' '));
+    t = t.replace(re, (...m) => { const r = fn(...m); return r === false ? m[0] : typeof r === 'string' ? r : ' '; });
   };
-  take(/\s[pP]([1-4])(?=\s)/, (_, n) => { out.priority = +n; });
+  // priority is just high (1) or low (4): "!high", "!low", "!" — old p1–p4 still work (p1/p2 high)
+  take(/\s!(?:high|hi|h)?(?=\s)/i, () => { out.priority = 1; });
+  take(/\s!(?:low|lo|l)(?=\s)/i, () => { out.priority = 4; });
+  take(/\s[pP]([1-4])(?=\s)/, (_, n) => { out.priority = +n <= 2 ? 1 : 4; });
   take(/\s[dD]([1-5])(?=\s)/, (_, n) => { out.difficulty = +n; });
   take(/\s#([\w\-.]+)(?=\s)/, (_, p) => { out.project = p; });
+  // repeats: "every day", "daily", "weekdays", "every 2 weeks", "monthly"...
+  // "every mon" repeats weekly and leaves "mon" behind so it also sets the due date
+  take(new RegExp(`\\severy\\s+(${WD_RE})(?=\\s)`, 'i'), (_, d) => { out.repeat = 'weekly'; return ` ${d} `; });
+  REPEAT_WORDS.forEach(([re, v]) => take(re, () => { if (out.repeat) return false; out.repeat = v; }));
 
   const base = new Date(); base.setHours(0, 0, 0, 0);
   const plus = n => { const d = new Date(base); d.setDate(d.getDate() + n); return dayKey(d); };
@@ -126,7 +169,7 @@ function addTask(fields) {
   const t = {
     id: newId(),
     title: fields.title,
-    due: fields.due || null,
+    due: fields.due || (fields.repeat ? todayKey() : null),   // a repeat needs a start date
     priority: fields.priority || 4,
     difficulty: fields.difficulty || 3,
     project: fields.project || '',
@@ -134,6 +177,7 @@ function addTask(fields) {
     done: null,
     focusSec: 0,
   };
+  if (fields.repeat) t.repeat = fields.repeat;
   tasks.items.push(t);
   saveTasks();
   refreshTaskViews();
@@ -168,9 +212,25 @@ function setTaskDone(id, done) {
     else liveSession.tasksDone = liveSession.tasksDone.filter(x => x.id !== id);
   }
   if (done && currentTaskId === id) setCurrentTask(null);
+  let next = null;
+  if (done && t.repeat && REPEAT_LABEL[t.repeat]) {
+    // repeating: add the next one (subtasks start unchecked again)
+    next = {
+      ...t, id: newId(), due: nextDue(t), created: Date.now(), done: null, focusSec: 0,
+      subtasks: (t.subtasks || []).map(s => ({ ...s, id: newId(), done: false })),
+    };
+    delete next.spawned;
+    tasks.items.push(next);
+    t.spawned = next.id;
+  } else if (!done && t.spawned) {
+    // un-checking takes back the copy it made, unless that one has been worked on since
+    const n = taskById(t.spawned);
+    if (n && !n.done && !n.focusSec) tasks.items.splice(tasks.items.indexOf(n), 1);
+    delete t.spawned;
+  }
   saveTasks();
   refreshTaskViews();
-  if (done) toast(`Completed "${t.title}"`, 'Undo', () => setTaskDone(id, false));
+  if (done) toast(next ? `Completed "${t.title}" · next ${fmtDue(next.due)}` : `Completed "${t.title}"`, 'Undo', () => setTaskDone(id, false));
 }
 
 function deleteTask(id) {
@@ -314,10 +374,14 @@ function renderTimerSubs() {
 }
 
 // ---------------------------------------------------------------- task list
+// Priority is high or low. Stored as 1 (high) / 4 (low); older tasks may have 2 or 3 (2 counts as high).
+function isHigh(t) { return (t.priority || 4) <= 2; }
+function priLabel(p) { return p <= 2 ? 'High' : 'Low'; }
+
 function sortTasks(list) {
   return list.slice().sort((a, b) =>
     (a.due || '9999') .localeCompare(b.due || '9999') ||
-    a.priority - b.priority ||
+    isHigh(b) - isHigh(a) ||
     b.difficulty - a.difficulty ||
     a.created - b.created);
 }
@@ -334,7 +398,10 @@ function renderTasks() {
     const due = sortTasks(open.filter(t => t.due === today));
     if (overdue.length) groups.push({ title: 'Overdue', cls: 'overdue', items: overdue });
     groups.push({ title: 'Today', sub: keyToDate(today).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
-      items: due, empty: 'Nothing due today. Add a task below, or check Upcoming.' });
+      items: due, empty: 'Nothing due today. Add a task above, or check Upcoming.', noHead: !overdue.length });
+    const doneToday = tasks.items.filter(t => t.done && dayKey(t.done) === today && (!projFilter || t.project === projFilter))
+      .sort((a, b) => a.done - b.done);
+    if (doneToday.length) groups.push({ title: `Done · ${doneToday.length}`, cls: 'done-head', plain: true, items: doneToday });
   } else if (taskView === 'upcoming') {
     const future = sortTasks(open.filter(t => t.due && t.due > today));
     const byDay = {};
@@ -366,20 +433,21 @@ function renderTasks() {
     const sec = el('section', 'task-group');
     const h = el('h4', g.cls || '', g.title);
     const pts = g.items.reduce((a, t) => a + t.difficulty, 0);
-    if (g.items.length) h.append(el('span', null, `${g.items.length} task${g.items.length > 1 ? 's' : ''} · ${pts} pts`));
-    else if (g.sub) h.append(el('span', null, g.sub));
-    sec.append(h);
+    if (g.items.length && !g.plain) h.append(el('span', null, `${g.items.length} task${g.items.length > 1 ? 's' : ''} · ${pts} pts`));
+    else if (g.sub && !g.plain) h.append(el('span', null, g.sub));
+    if (!g.noHead) sec.append(h);
     if (!g.items.length && g.empty) sec.append(el('div', 'task-empty', g.empty));
     g.items.forEach(t => sec.append(t.id === editingId ? taskEditor(t) : taskRow(t)));
     box.append(sec);
   });
 
   // page header
-  const shown = groups.reduce((a, g) => a + g.items.length, 0);
+  const shown = groups.reduce((a, g) => a + (g.plain ? 0 : g.items.length), 0);
   const doneToday = tasks.items.filter(t => t.done && dayKey(t.done) === today).length;
   $('taskTitle').textContent = { today: 'Today', upcoming: 'Upcoming', all: 'All tasks', done: 'Done' }[taskView];
-  $('taskSub').textContent = (projFilter ? `# ${projFilter} · ` : '')
-    + `${shown} task${shown === 1 ? '' : 's'}` + (taskView !== 'done' ? ` · ${doneToday} done today` : '');
+  const dateLabel = taskView === 'today' ? keyToDate(today).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' : '';
+  $('taskSub').textContent = dateLabel + (projFilter ? `#${projFilter} · ` : '')
+    + `${shown} task${shown === 1 ? '' : 's'}` + (taskView !== 'done' && taskView !== 'today' ? ` · ${doneToday} done today` : '');
   renderSideNav();
 }
 
@@ -421,7 +489,7 @@ function taskRow(t, opts = {}) {
   const row = el('div', 'task' + (t.done ? ' done' : '') + (t.id === currentTaskId ? ' linked' : ''));
   row.dataset.id = t.id;
 
-  const check = el('button', 'check p' + t.priority);
+  const check = el('button', 'check ' + (isHigh(t) ? 'hi' : 'lo'));
   check.type = 'button';
   check.innerHTML = CHECK_SVG;
   check.setAttribute('aria-label', t.done ? `Mark "${t.title}" not done` : `Complete "${t.title}"`);
@@ -429,16 +497,17 @@ function taskRow(t, opts = {}) {
 
   const body = el('div', 't-body');
   body.append(el('div', 't-title', t.title));
+  // "#ece150 · difficulty 4 · Fri · Every week"
   const meta = el('div', 't-meta');
-  if (t.due && !opts.hideDue) {
-    const cls = !t.done && t.due < today ? ' overdue' : t.due === today ? ' today' : '';
-    meta.append(el('span', 'due' + cls, '📅 ' + fmtDue(t.due)));
-  }
-  const diff = el('span', 'diff');
-  diff.title = `Difficulty ${t.difficulty} of 5`;
-  diff.append(diffDots(t.difficulty), DIFF_LABEL[t.difficulty]);
+  if (t.project) meta.append(el('span', 'proj', '#' + t.project));
+  const diff = el('span', 'diff', `difficulty ${t.difficulty}`);
+  diff.title = `Difficulty ${t.difficulty} of 5 · ${DIFF_LABEL[t.difficulty]}`;
   meta.append(diff);
-  if (t.priority < 4) meta.append(el('span', 'pflag', 'P' + t.priority));
+  if (t.due && !opts.hideDue && !(taskView === 'today' && t.due === today && !$('tasksView').hidden)) {
+    const cls = !t.done && t.due < today ? ' overdue' : t.due === today ? ' today' : '';
+    meta.append(el('span', 'due' + cls, fmtDue(t.due)));
+  }
+  if (t.repeat && REPEAT_LABEL[t.repeat] && !t.done) meta.append(el('span', 'repeat', '🔁 ' + REPEAT_LABEL[t.repeat]));
   if (t.focusSec >= 60) meta.append(el('span', null, '⏱ ' + fmtSecs(t.focusSec)));
   if (t.id === currentTaskId) meta.append(el('span', 'pflag', '● on the timer'));
   const subs = subsOf(t);
@@ -480,9 +549,8 @@ function taskRow(t, opts = {}) {
   edit.addEventListener('click', () => { editingId = t.id; if (opts.onEdit) opts.onEdit(); else renderTasks(); });
   actions.append(edit);
 
-  row.append(check, body);
-  if (t.project) row.append(el('span', 't-proj', '# ' + t.project));
-  row.append(actions);
+  row.append(check, body, actions);
+  if (!t.done) row.append(el('span', 'pri-badge ' + (isHigh(t) ? 'hi' : 'lo'), priLabel(t.priority)));
   return row;
 }
 
@@ -496,9 +564,10 @@ function taskEditor(t, onClose) {
   const opts = el('div', 'qa-opts');
   const due = el('input'); due.type = 'date'; due.value = t.due || '';
   const pri = el('select');
-  [['1', 'P1 · urgent'], ['2', 'P2 · high'], ['3', 'P3 · medium'], ['4', 'P4 · normal']].forEach(([v, l]) => pri.append(new Option(l, v)));
-  pri.value = String(t.priority);
+  [['1', 'High'], ['4', 'Low']].forEach(([v, l]) => pri.append(new Option(l, v)));
+  pri.value = isHigh(t) ? '1' : '4';
   const proj = el('input'); proj.setAttribute('list', 'projList'); proj.value = t.project || ''; proj.size = 10; proj.placeholder = 'none';
+  const rep = repeatSelect(t.repeat);
   let diffVal = t.difficulty;
   const diffPick = el('div', 'diff-pick');
   diffPick.setAttribute('role', 'radiogroup');
@@ -507,7 +576,7 @@ function taskEditor(t, onClose) {
 
   const lab = (text, input) => { const l = el('label', null, text + ' '); l.append(input); return l; };
   const dwrap = el('div', 'diff-field'); dwrap.append(el('span', null, 'Difficulty'), diffPick);
-  opts.append(lab('Due', due), lab('Priority', pri), dwrap, lab('Project', proj));
+  opts.append(lab('Due', due), lab('Repeat', rep), lab('Priority', pri), dwrap, lab('Project', proj));
 
   const buttons = el('div', 'te-buttons');
   const save = el('button', 'primary small', 'Save'); save.type = 'submit';
@@ -523,9 +592,11 @@ function taskEditor(t, onClose) {
     if (!name) { title.focus(); return; }
     t.title = name;
     t.due = due.value || null;
-    t.priority = Number(pri.value);
+    if (isHigh(t) !== (pri.value === '1')) t.priority = Number(pri.value);   // leave old 2/3 values alone unless changed
     t.difficulty = diffVal;
     t.project = proj.value.trim().replace(/^#/, '');
+    if (rep.value) { t.repeat = rep.value; if (!t.due) t.due = todayKey(); }
+    else delete t.repeat;
     saveTasks();
     editingId = null;
     refreshTaskViews();
@@ -535,6 +606,15 @@ function taskEditor(t, onClose) {
   box.append(title, opts, buttons);
   setTimeout(() => title.focus(), 0);
   return box;
+}
+
+// "Doesn't repeat" + the repeat options
+function repeatSelect(value) {
+  const s = el('select');
+  s.append(new Option("Doesn't repeat", ''));
+  Object.entries(REPEAT_LABEL).forEach(([v, l]) => s.append(new Option(l, v)));
+  s.value = value && REPEAT_LABEL[value] ? value : '';
+  return s;
 }
 
 // Five 1–5 buttons + a label ("Hard")
@@ -569,12 +649,13 @@ const qaPaintDiff = buildDiffPicker($('qaDiff'), () => qaParsed.difficulty || qa
 });
 
 function qaDefaults() {
-  qaState = { due: taskView === 'today' ? todayKey() : '', priority: 4, difficulty: 3, project: projFilter || '' };
+  qaState = { due: taskView === 'today' ? todayKey() : '', priority: 4, difficulty: 3, project: projFilter || '', repeat: '' };
   syncQaControls(qaState);
 }
 function syncQaControls(v) {
   $('qaDue').value = v.due || '';
-  $('qaPri').value = String(v.priority);
+  $('qaRep').value = v.repeat || '';
+  $('qaPri').value = v.priority <= 2 ? '1' : '4';
   $('qaProj').value = v.project || '';
   qaPaintDiff();
 }
@@ -587,6 +668,7 @@ function qaCombined() {
     priority: parsed.priority || qaState.priority,
     difficulty: parsed.difficulty || qaState.difficulty,
     project: parsed.project || qaState.project,
+    repeat: parsed.repeat || qaState.repeat || '',
     parsed,
   };
 }
@@ -594,21 +676,25 @@ function renderQaPreview() {
   const c = qaCombined();
   // controls always show what will be saved (typed shortcuts win over the controls)
   $('qaDue').value = c.due || '';
-  $('qaPri').value = String(c.priority);
+  $('qaRep').value = c.repeat;
+  $('qaPri').value = c.priority <= 2 ? '1' : '4';
+  $('addForm').classList.toggle('open', !!$('qaInput').value.trim());
   $('qaProj').value = c.project || '';
   qaPaintDiff();
   const prev = $('qaPreview');
   prev.textContent = '';
   if (!$('qaInput').value.trim()) return;
   prev.append(el('span', 'chip title', c.title ? `“${c.title}”` : 'Add a task name'));
-  if (c.due) prev.append(el('span', 'chip', '📅 ' + fmtDue(c.due)));
-  prev.append(el('span', 'chip', 'P' + c.priority));
+  if (c.due || c.repeat) prev.append(el('span', 'chip', '📅 ' + fmtDue(c.due || todayKey())));
+  if (c.repeat) prev.append(el('span', 'chip', '🔁 ' + REPEAT_LABEL[c.repeat]));
+  prev.append(el('span', 'chip pri-chip ' + (c.priority <= 2 ? 'hi' : 'lo'), priLabel(c.priority)));
   const dc = el('span', 'chip'); dc.append(diffDots(c.difficulty), DIFF_LABEL[c.difficulty]); prev.append(dc);
   if (c.project) prev.append(el('span', 'chip', '# ' + c.project));
 }
 
 $('qaInput').addEventListener('input', renderQaPreview);
 $('qaDue').addEventListener('change', () => { qaState.due = $('qaDue').value; renderQaPreview(); });
+$('qaRep').addEventListener('change', () => { qaState.repeat = $('qaRep').value; renderQaPreview(); });
 $('qaPri').addEventListener('change', () => { qaState.priority = Number($('qaPri').value); renderQaPreview(); });
 $('qaProj').addEventListener('change', () => { qaState.project = $('qaProj').value.trim().replace(/^#/, ''); renderQaPreview(); });
 $('qaDiff').addEventListener('click', renderQaPreview);

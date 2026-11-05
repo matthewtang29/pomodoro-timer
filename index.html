@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <!-- App version: the ?v= on the files below changes with every release so browsers load the new files. -->
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Pomegranate</title>
 <meta name="description" content="Pomegranate: control Matthew Tang's Arduino Pomodoro timer over USB, plan tasks, and track study time.">
 <meta name="theme-color" content="#1e1e1e">
@@ -13,7 +13,7 @@
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/nunito.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.10.27a">
+<link rel="stylesheet" href="style.css?v=2026.11.04c">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -31,7 +31,7 @@
   <!-- ============================== SIDEBAR ============================== -->
   <nav class="side" aria-label="Main">
     <div class="brand">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="7"/><path d="M12 13V9.5M10 3h4"/></svg></span>
+      <span class="brand-mark" aria-hidden="true"></span>
       <h1>Pomegranate</h1>
     </div>
 
@@ -59,10 +59,10 @@
     </div>
 
     <div class="side-foot">
-      <svg class="side-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5.5"/><circle cx="12" cy="4.5" r="1"/><circle cx="9.5" cy="13" r="1.1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="13" r="1.1" fill="currentColor" stroke="none"/><path d="M10.5 16h3"/></svg>
       <div class="device">
         <span id="pill" class="pill">Built-in timer</span>
-        <span class="device-sub" id="devSub">Device not connected</span>
+        <span class="device-sub" id="devSub" hidden>Device not connected</span>
+        <button id="connectBtn" type="button" class="connect-link">Connect timer</button>
       </div>
       <div class="theme-wrap">
         <button id="themeBtn" class="icon-btn bare" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="themeMenu" title="Settings: sync, alerts and theme">
@@ -70,7 +70,12 @@
           <span class="sr-only">Settings</span>
           <i class="sync-dot off" id="syncDot" hidden></i>
         </button>
-        <div class="theme-menu" id="themeMenu" role="dialog" aria-label="Settings" hidden>
+        <div class="theme-menu" id="themeMenu" role="dialog" aria-modal="true" aria-labelledby="tmTitle" hidden>
+          <div class="tm-head">
+            <h2 id="tmTitle">Settings</h2>
+            <button type="button" id="themeClose" class="primary">Done</button>
+          </div>
+          <div class="tm-col">
           <h3>Sync</h3>
           <div id="syncPanel" class="sync-panel"></div>
           <hr class="tm-sep">
@@ -80,7 +85,8 @@
           <p class="sync-note" id="pushStatus" hidden></p>
           <button type="button" class="small" id="pushTest" hidden>Send a test alert</button>
           <label class="tm-check" id="wakeRow"><input type="checkbox" id="wakeChk"> Keep screen on during sessions</label>
-          <hr class="tm-sep">
+          </div>
+          <div class="tm-col">
           <h3>Theme</h3>
           <div class="tm-label">Appearance</div>
           <div class="seg" role="group" aria-label="Appearance">
@@ -91,10 +97,11 @@
           <div class="tm-label">Accent color</div>
           <div class="swatches" id="swatches" role="group" aria-label="Accent color"></div>
           <label class="custom-color">
-            <input type="color" id="customColor" value="#c4473b">
+            <input type="color" id="customColor" value="#8fb996">
             <span>Custom color…</span>
           </label>
           <button type="button" class="small" id="themeReset">Reset to default</button>
+          </div>
         </div>
       </div>
     </div>
@@ -106,21 +113,49 @@
   </div>
 
   <!-- ============================== TIMER ============================== -->
-  <div id="timerView" class="view" role="tabpanel" aria-labelledby="tabTimer">
-    <header class="page-head">
-      <div class="ph-text">
-        <h2>Timer</h2>
-        <p id="timerToday"></p>
-      </div>
-      <button id="muteBtn" class="icon-btn" aria-pressed="false" disabled title="Turn the timer's buzzer on or off">
-        <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
-        <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/></svg>
-        <span id="muteLabel">Mute</span>
-      </button>
-      <button id="connectBtn">Connect timer</button>
-    </header>
+  <div id="timerView" class="view timer-view" role="tabpanel" aria-labelledby="tabTimer">
+    <h2 class="sr-only">Timer</h2>
+    <p id="timerToday" hidden></p>
 
     <main id="card" data-phase="idle">
+      <!-- Session presets; "Custom" opens the focus / break / cycles steppers -->
+      <div class="preset-bar" id="presetBar" role="group" aria-label="Session length">
+        <button type="button" class="pill-btn" data-preset="25,5,4">Classic 25/5 × 4</button>
+        <button type="button" class="pill-btn" data-preset="50,10,3">Deep work 50/10 × 3</button>
+        <button type="button" class="pill-btn" data-preset="90,30,2">Exam 90/30 × 2</button>
+        <button type="button" class="pill-btn" id="customBtn" aria-expanded="false" aria-controls="setupFields">Custom</button>
+      </div>
+
+      <div id="setupFields" class="custom-box box" hidden>
+        <div class="fields">
+          <div class="field">
+            <label for="focusIn">Focus (min)</label>
+            <div class="stepper">
+              <button type="button" data-step="focusIn" data-by="-5" aria-label="Less focus time">−</button>
+              <input id="focusIn" type="number" min="1" max="99" value="25" inputmode="numeric">
+              <button type="button" data-step="focusIn" data-by="5" aria-label="More focus time">+</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="breakIn">Break (min)</label>
+            <div class="stepper">
+              <button type="button" data-step="breakIn" data-by="-5" aria-label="Less break time">−</button>
+              <input id="breakIn" type="number" min="1" max="99" value="5" inputmode="numeric">
+              <button type="button" data-step="breakIn" data-by="5" aria-label="More break time">+</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cyclesIn">Cycles</label>
+            <div class="stepper">
+              <button type="button" data-step="cyclesIn" data-by="-1" aria-label="Fewer cycles">−</button>
+              <input id="cyclesIn" type="number" min="1" max="20" value="4" inputmode="numeric">
+              <button type="button" data-step="cyclesIn" data-by="1" aria-label="More cycles">+</button>
+            </div>
+          </div>
+        </div>
+        <p class="total" id="totalHint"></p>
+      </div>
+
       <section class="countdown" aria-label="Countdown">
         <div class="dial">
           <svg viewBox="0 0 240 240" aria-hidden="true">
@@ -133,7 +168,19 @@
             <div class="sub" id="sub">Plug in, then press Connect</div>
           </div>
         </div>
+      </section>
 
+      <!-- Which task this session is for -->
+      <div class="task-link">
+        <label for="taskSelect">Working on</label>
+        <div class="task-link-row">
+          <select id="taskSelect"></select>
+          <button id="taskDoneBtn" type="button" class="small" hidden>✓ Done</button>
+        </div>
+        <div class="timer-subs" id="timerSubs" hidden></div>
+      </div>
+
+      <div class="controls">
         <!-- Set up a session -->
         <section class="panel" id="setupPanel">
           <div class="row">
@@ -158,56 +205,14 @@
             <button id="noBtn">No, finish</button>
           </div>
         </section>
-      </section>
 
-      <section class="setup box" aria-label="Session setup">
-        <!-- Which task this session is for -->
-        <div class="task-link">
-          <label for="taskSelect">Working on</label>
-          <select id="taskSelect"></select>
-          <button id="taskDoneBtn" type="button" class="small" hidden>✓ Mark done</button>
-        </div>
-        <div class="timer-subs" id="timerSubs" hidden></div>
+        <button id="muteBtn" aria-pressed="false" disabled title="Turn the timer's buzzer on or off"><span id="muteLabel">Mute</span></button>
+      </div>
 
-        <div id="setupFields">
-          <div class="fields">
-            <div class="field">
-              <label for="focusIn">Focus (min)</label>
-              <div class="stepper">
-                <button type="button" data-step="focusIn" data-by="-5" aria-label="Less focus time">−</button>
-                <input id="focusIn" type="number" min="1" max="99" value="25" inputmode="numeric">
-                <button type="button" data-step="focusIn" data-by="5" aria-label="More focus time">+</button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="breakIn">Break (min)</label>
-              <div class="stepper">
-                <button type="button" data-step="breakIn" data-by="-5" aria-label="Less break time">−</button>
-                <input id="breakIn" type="number" min="1" max="99" value="5" inputmode="numeric">
-                <button type="button" data-step="breakIn" data-by="5" aria-label="More break time">+</button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="cyclesIn">Cycles</label>
-              <div class="stepper">
-                <button type="button" data-step="cyclesIn" data-by="-1" aria-label="Fewer cycles">−</button>
-                <input id="cyclesIn" type="number" min="1" max="20" value="4" inputmode="numeric">
-                <button type="button" data-step="cyclesIn" data-by="1" aria-label="More cycles">+</button>
-              </div>
-            </div>
-          </div>
-          <div class="presets">
-            <span class="total" id="totalHint"></span>
-            <button type="button" data-preset="25,5,4">Classic 25/5 × 4</button>
-            <button type="button" data-preset="50,10,3">Deep work 50/10 × 3</button>
-            <button type="button" data-preset="90,30,2">Exam 90/30 × 2</button>
-          </div>
-        </div>
-      </section>
-
-      <div class="stats">
-        <span><b id="doneStat">0</b> focus sessions</span>
-        <span><b id="totalStat">0m</b> total focus time</span>
+      <div class="stat-cards">
+        <div class="stat-card"><span>Focus sessions</span><b id="doneStat">0</b></div>
+        <div class="stat-card"><span>Focus time</span><b id="totalStat">0m</b></div>
+        <div class="stat-card"><span>Today's score</span><b><span id="todayScoreStat">—</span><small>/100</small></b></div>
       </div>
     </main>
 
@@ -250,19 +255,23 @@
       </div>
     </header>
 
-    <div id="taskList"></div>
-
     <form class="quick-add box" id="addForm" autocomplete="off">
       <div class="qa-row">
-        <input id="qaInput" aria-label="New task" placeholder="Add a task… e.g. Circuits lab report fri p1 d4 #ECE140">
+        <span class="qa-plus" aria-hidden="true">+</span>
+        <input id="qaInput" aria-label="New task" placeholder="Add a task — try “tmr !high #ece150”">
       </div>
       <div class="qa-preview" id="qaPreview" aria-live="polite"></div>
       <div class="qa-opts">
         <label>Due <input type="date" id="qaDue"></label>
+        <label>Repeat
+          <select id="qaRep">
+            <option value="">Doesn't repeat</option><option value="daily">Every day</option><option value="weekdays">Every weekday</option>
+            <option value="weekly">Every week</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Every month</option>
+          </select>
+        </label>
         <label>Priority
           <select id="qaPri">
-            <option value="1">P1 · urgent</option><option value="2">P2 · high</option>
-            <option value="3">P3 · medium</option><option value="4" selected>P4 · normal</option>
+            <option value="1">High</option><option value="4" selected>Low</option>
           </select>
         </label>
         <div class="diff-field">
@@ -275,9 +284,12 @@
         <button class="small soft" type="button" id="qaCancel">Cancel</button>
         <button class="primary small" type="submit">Add task</button>
       </div>
+      <p class="qa-help">Type <code>today</code>, <code>tmr</code>, <code>fri</code>, <code>oct 3</code> or <code>10/3</code> for a date,
+        <code>!high</code> or <code>!low</code> priority, <code>d1</code>–<code>d5</code> difficulty, <code>#course</code> project,
+        <code>daily</code>, <code>weekly</code> or <code>every mon</code> to repeat.</p>
     </form>
-    <p class="qa-help">Type <code>today</code>, <code>tmr</code>, <code>fri</code>, <code>oct 3</code> or <code>10/3</code> for a date,
-      <code>p1</code>–<code>p4</code> priority, <code>d1</code>–<code>d5</code> difficulty, <code>#course</code> project.</p>
+
+    <div id="taskList"></div>
     <datalist id="projList"></datalist>
   </div>
 
@@ -475,19 +487,19 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.10.27a"></script>
-<script src="localtimer.js?v=2026.10.27a"></script>
-<script src="notify.js?v=2026.10.27a"></script>
-<script src="score.js?v=2026.10.27a"></script>
-<script src="analytics.js?v=2026.10.27a"></script>
-<script src="tasks.js?v=2026.10.27a"></script>
-<script src="calendar.js?v=2026.10.27a"></script>
-<script src="journal.js?v=2026.10.27a"></script>
-<script src="sync.js?v=2026.10.27a"></script>
-<script src="livesync.js?v=2026.10.27a"></script>
-<script src="push.js?v=2026.10.27a"></script>
-<script src="theme.js?v=2026.10.27a"></script>
-<script src="shortcuts.js?v=2026.10.27a"></script>
-<script src="main.js?v=2026.10.27a"></script>
+<script src="app.js?v=2026.11.04c"></script>
+<script src="localtimer.js?v=2026.11.04c"></script>
+<script src="notify.js?v=2026.11.04c"></script>
+<script src="score.js?v=2026.11.04c"></script>
+<script src="analytics.js?v=2026.11.04c"></script>
+<script src="tasks.js?v=2026.11.04c"></script>
+<script src="calendar.js?v=2026.11.04c"></script>
+<script src="journal.js?v=2026.11.04c"></script>
+<script src="sync.js?v=2026.11.04c"></script>
+<script src="livesync.js?v=2026.11.04c"></script>
+<script src="push.js?v=2026.11.04c"></script>
+<script src="theme.js?v=2026.11.04c"></script>
+<script src="shortcuts.js?v=2026.11.04c"></script>
+<script src="main.js?v=2026.11.04c"></script>
 </body>
 </html>
