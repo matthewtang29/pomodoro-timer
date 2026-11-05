@@ -675,11 +675,6 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tm-sep { border: 0; border-top: 1px solid var(--line); margin: 14px 0 12px; }
 .tm-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 6px 0; cursor: pointer; }
 .tm-check input { width: 15px; height: 15px; }
-.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
-.swatches button { aspect-ratio: 1; width: 100%; height: auto; padding: 0; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
-.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
-.custom-color { display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; font-size: 13px; cursor: pointer; }
-.custom-color input { width: 30px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: none; cursor: pointer; }
 .sync-dot { position: absolute; right: 3px; top: 3px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--side); background: var(--idle); }
 .sync-dot.synced { background: var(--rest); }
 .sync-dot.syncing { background: var(--paused); }

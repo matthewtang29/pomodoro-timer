@@ -17,6 +17,11 @@ function startClassicSession() {
 }
 
 // ---------------------------------------------------------------- quick-add box
+// On the Tasks tab with a project selected, new tasks go into that project
+function qaDialogProject(p) {
+  return p.project || (!$('tasksView').hidden && projFilter) || '';
+}
+
 function quickAddPreview() {
   const box = $('qaDialogPreview');
   box.textContent = '';
@@ -30,7 +35,8 @@ function quickAddPreview() {
   box.append(el('span', 'chip pri-chip ' + ((p.priority || 4) <= 2 ? 'hi' : 'lo'), priLabel(p.priority || 4)));
   const d = p.difficulty || 3;
   const dc = el('span', 'chip'); dc.append(diffDots(d), DIFF_LABEL[d]); box.append(dc);
-  if (p.project) box.append(el('span', 'chip', '# ' + p.project));
+  const proj = qaDialogProject(p);
+  if (proj) box.append(el('span', 'chip', '# ' + proj));
 }
 
 function openQuickAdd() {
@@ -47,7 +53,7 @@ $('qaDialogForm').addEventListener('submit', e => {
   e.preventDefault();
   const p = parseQuickAdd($('qaDialogInput').value);
   if (!p.title) { $('qaDialogInput').focus(); return; }
-  const t = addTask({ title: p.title, due: p.due || todayKey(), priority: p.priority, difficulty: p.difficulty, project: p.project, repeat: p.repeat });
+  const t = addTask({ title: p.title, due: p.due || todayKey(), priority: p.priority, difficulty: p.difficulty, project: qaDialogProject(p), repeat: p.repeat });
   $('qaDialog').close();
   toast(`Added “${t.title}” · ${fmtDue(t.due)}`, 'View', () => showTab('tasks'));
 });

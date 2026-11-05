@@ -2,7 +2,7 @@
 // Network first, and every request double-checks with GitHub that the file hasn't
 // changed (instead of trusting the browser's 10-minute cache), so updates you push
 // show up the next time the app opens. The cached copy is only used when offline.
-const CACHE = 'pomegranate-v20';
+const CACHE = 'pomegranate-v22';
 const ASSETS = [
   './', 'index.html', 'style.css',
   'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',

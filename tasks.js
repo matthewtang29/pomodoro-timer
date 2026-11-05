@@ -469,6 +469,7 @@ function renderSideNav() {
     b.append(el('span', 'hash', '#'), el('span', 'name', p), el('span', 'count', n ? String(n) : ''));
     b.addEventListener('click', () => {
       projFilter = projFilter === p && !$('tasksView').hidden ? '' : p;
+      qaFollowProject();
       showTab('tasks');
     });
     const del = el('button', 'side-proj-del', '×');
@@ -652,6 +653,11 @@ function qaDefaults() {
   qaState = { due: taskView === 'today' ? todayKey() : '', priority: 4, difficulty: 3, project: projFilter || '', repeat: '' };
   syncQaControls(qaState);
 }
+// The add form follows the project you're looking at (clicked in the sidebar or picked in the filter)
+function qaFollowProject() {
+  qaState.project = projFilter || '';
+  renderQaPreview();
+}
 function syncQaControls(v) {
   $('qaDue').value = v.due || '';
   $('qaRep').value = v.repeat || '';
@@ -725,7 +731,7 @@ function setTaskView(v) {
   renderTasks();
 }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setTaskView(b.dataset.view)));
-$('projFilter').addEventListener('change', () => { projFilter = $('projFilter').value; renderTasks(); });
+$('projFilter').addEventListener('change', () => { projFilter = $('projFilter').value; qaFollowProject(); renderTasks(); });
 $('projDelete').addEventListener('click', () => { if (projFilter) deleteProject(projFilter); });
 
 function renderProjectLists() {
@@ -740,6 +746,7 @@ function renderProjectLists() {
   ps.forEach(p => sel.append(new Option('# ' + p, p)));
   sel.value = ps.includes(cur) ? cur : '';
   projFilter = sel.value;
+  if (projFilter !== cur && qaState.project === cur) qaFollowProject();   // that project was deleted
   renderSideNav();
 }
 

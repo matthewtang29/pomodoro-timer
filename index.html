@@ -13,14 +13,13 @@
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/nunito.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.04c">
+<link rel="stylesheet" href="style.css?v=2026.11.05b">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
     try {
       var t = JSON.parse(localStorage.getItem('pomodoro-theme') || '{}');
       if (t.mode === 'light' || t.mode === 'dark') document.documentElement.dataset.theme = t.mode;
-      if (t.accent) document.documentElement.style.setProperty('--accent', t.accent);
     } catch (e) {}
   })();
 </script>
@@ -94,13 +93,6 @@
             <button type="button" data-mode="light" aria-pressed="false">Light</button>
             <button type="button" data-mode="dark" aria-pressed="false">Dark</button>
           </div>
-          <div class="tm-label">Accent color</div>
-          <div class="swatches" id="swatches" role="group" aria-label="Accent color"></div>
-          <label class="custom-color">
-            <input type="color" id="customColor" value="#8fb996">
-            <span>Custom color…</span>
-          </label>
-          <button type="button" class="small" id="themeReset">Reset to default</button>
           </div>
         </div>
       </div>
@@ -487,19 +479,19 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.11.04c"></script>
-<script src="localtimer.js?v=2026.11.04c"></script>
-<script src="notify.js?v=2026.11.04c"></script>
-<script src="score.js?v=2026.11.04c"></script>
-<script src="analytics.js?v=2026.11.04c"></script>
-<script src="tasks.js?v=2026.11.04c"></script>
-<script src="calendar.js?v=2026.11.04c"></script>
-<script src="journal.js?v=2026.11.04c"></script>
-<script src="sync.js?v=2026.11.04c"></script>
-<script src="livesync.js?v=2026.11.04c"></script>
-<script src="push.js?v=2026.11.04c"></script>
-<script src="theme.js?v=2026.11.04c"></script>
-<script src="shortcuts.js?v=2026.11.04c"></script>
-<script src="main.js?v=2026.11.04c"></script>
+<script src="app.js?v=2026.11.05b"></script>
+<script src="localtimer.js?v=2026.11.05b"></script>
+<script src="notify.js?v=2026.11.05b"></script>
+<script src="score.js?v=2026.11.05b"></script>
+<script src="analytics.js?v=2026.11.05b"></script>
+<script src="tasks.js?v=2026.11.05b"></script>
+<script src="calendar.js?v=2026.11.05b"></script>
+<script src="journal.js?v=2026.11.05b"></script>
+<script src="sync.js?v=2026.11.05b"></script>
+<script src="livesync.js?v=2026.11.05b"></script>
+<script src="push.js?v=2026.11.05b"></script>
+<script src="theme.js?v=2026.11.05b"></script>
+<script src="shortcuts.js?v=2026.11.05b"></script>
+<script src="main.js?v=2026.11.05b"></script>
 </body>
 </html>
