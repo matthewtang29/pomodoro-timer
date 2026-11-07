@@ -7,7 +7,7 @@
 
 const TASKS_KEY = 'pomodoro-tasks-v1';
 let tasks = loadTasks();
-let taskView = 'today';
+let taskView = 'all';
 let projFilter = '';
 let editingId = null;
 let currentTaskId = null;           // task linked to the timer
@@ -267,7 +267,6 @@ window.addEventListener('pagehide', saveTasks);
 function refreshTaskViews() {
   if (!$('tasksView').hidden) renderTasks();
   if (!$('calView').hidden && typeof renderCalendar === 'function') renderCalendar();
-  if (!$('analyticsView').hidden) renderAnalytics();
   renderTimerTask();
   renderProjectLists();
   if (focusSub) {   // keep typing: put the cursor back in the "add a subtask" box

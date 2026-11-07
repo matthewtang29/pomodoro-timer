@@ -14,8 +14,6 @@ let tick = null;            // { t, state } of the previous STATE line
 let liveSession = null;     // session record being filled in
 let sessionExited = false;
 let lastSave = 0;
-let lastStatsRender = 0;
-let range = 14;
 
 function loadStore() {
   let data = null;
@@ -104,7 +102,6 @@ function trackState(prev, next, at) {
   }
   saveStore(false);
 
-  if (!$('analyticsView').hidden && now - lastStatsRender > 3000) renderAnalytics();
 }
 
 function findSession(start) {
@@ -134,7 +131,6 @@ function finishSession(outcome) {
   liveSession.outcome = outcome;
   liveSession = null;
   saveStore(true);
-  if (!$('analyticsView').hidden) renderAnalytics();
 }
 
 // ---------------------------------------------------------------- formatting
@@ -142,21 +138,6 @@ function fmtSecs(sec) {
   const mins = Math.round(sec / 60);
   if (sec > 0 && mins === 0) return '<1m';
   return fmtDuration(mins);
-}
-function deltaInfo(cur, prev, isCount, goodUp = true) {
-  const diff = cur - prev;
-  const small = isCount ? diff === 0 : Math.abs(diff) < 60;
-  if (small) return { cls: 'delta-flat', text: '= yesterday', vs: '' };
-  const txt = isCount ? String(Math.abs(diff)) : fmtSecs(Math.abs(diff));
-  const up = diff > 0;
-  const cls = !goodUp ? 'delta-flat' : up ? 'delta-up' : 'delta-down';
-  return { cls, text: `${up ? '▲ +' : '▼ −'}${txt}`, vs: ' vs yesterday' };
-}
-function fmtAxis(min) {
-  if (min === 0) return '0';
-  if (min < 60) return `${min}m`;
-  const h = min / 60;
-  return (Number.isInteger(h) ? h : h.toFixed(1)) + 'h';
 }
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -174,109 +155,6 @@ function el(tag, cls, text) {
   if (cls) e.className = cls;
   if (text != null) e.textContent = text;
   return e;
-}
-
-// ---------------------------------------------------------------- render
-function renderAnalytics() {
-  lastStatsRender = Date.now();
-  const today = dayKey(Date.now());
-  const yest = shiftKey(today, -1);
-  const T = peekDay(today), Y = peekDay(yest);
-
-  renderScoreCard(today);
-  renderScoreWeek(today);
-
-  // 7-day averages over days you actually studied (excluding today)
-  const prior = [];
-  for (let i = 1; i <= 7; i++) { const d = peekDay(shiftKey(today, -i)); if (deskOf(d) >= 60) prior.push(d); }
-  const avg = f => prior.length ? prior.reduce((a, d) => a + f(d), 0) / prior.length : null;
-
-  const tiles = [
-    { label: 'Desk time', key: null, cur: deskOf(T), prev: deskOf(Y), avg: avg(deskOf) },
-    { label: 'Focused', key: 'var(--s1)', cur: T.focus, prev: Y.focus, avg: avg(d => d.focus) },
-    { label: 'Break', key: 'var(--s2)', cur: T.brk, prev: Y.brk, avg: avg(d => d.brk), neutral: true },
-    { label: 'Focus blocks', key: null, cur: T.blocks, prev: Y.blocks, avg: avg(d => d.blocks), count: true },
-  ];
-  const box = $('tiles');
-  box.textContent = '';
-  tiles.forEach(t => {
-    const tile = el('div', 'tile');
-    const label = el('div', 't-label');
-    if (t.key) { const k = el('i', 't-key'); k.style.background = t.key; label.append(k); }
-    label.append(t.label);
-    const value = el('div', 't-value', t.count ? String(t.cur) : fmtSecs(t.cur));
-    const d = deltaInfo(t.cur, t.prev, t.count, !t.neutral);
-    const delta = el('div', 't-delta ' + d.cls, d.text);
-    if (d.vs) delta.append(el('span', null, d.vs));
-    const sub = el('div', 't-sub', t.avg == null ? 'No earlier days yet'
-      : `7-day avg ${t.count ? (Math.round(t.avg * 10) / 10) : fmtSecs(t.avg)}`);
-    tile.append(label, value, delta, sub);
-    box.append(tile);
-  });
-
-  // streak in the header, focus rate under the tiles
-  let streak = 0;
-  let k = T.focus >= 60 ? today : yest;
-  while (peekDay(k).focus >= 60) { streak++; k = shiftKey(k, -1); }
-  $('todayLabel').textContent = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
-    + (streak ? ` · ${streak}-day focus streak` : '');
-  const desk = deskOf(T);
-  const line = $('summaryLine');
-  line.textContent = '';
-  line.hidden = desk < 60;
-  if (desk >= 60) {
-    line.append('Focused for ', el('b', null, Math.round(T.focus / desk * 100) + '%'), ' of your desk time today.');
-  }
-
-  renderSessions(T, $('sessionList'), 'No sessions yet today. Sessions you run while connected will show up here.');
-  renderWeek(today);
-  renderChart(today);
-  renderTable(today);
-}
-
-function renderScoreCard(today) {
-  const r = dayScore(today);
-  const y = dayScore(shiftKey(today, -1));
-  $('scoreValue').textContent = r ? r.score : '—';
-  const delta = $('scoreDelta');
-  delta.textContent = '';
-  delta.className = 't-delta';
-  if (r && y) {
-    const diff = r.score - y.score;
-    delta.classList.add(diff > 0 ? 'delta-up' : diff < 0 ? 'delta-down' : 'delta-flat');
-    delta.append(diff === 0 ? '= yesterday' : `${diff > 0 ? '▲ +' : '▼ −'}${Math.abs(diff)}`);
-    if (diff !== 0) delta.append(el('span', null, ' vs yesterday'));
-  } else if (!r) {
-    delta.classList.add('delta-flat');
-    delta.textContent = 'Focus or add tasks due today to get a score';
-  }
-  const past = [];
-  for (let i = 1; i <= 7; i++) { const x = dayScore(shiftKey(today, -i)); if (x) past.push(x.score); }
-  $('scoreAvg').textContent = past.length ? `7-day avg ${Math.round(past.reduce((a, b) => a + b, 0) / past.length)}` : '';
-  renderScoreParts($('scoreParts'), r || { parts: [
-    { label: 'Focus time', value: null, detail: `goal ${fmtDuration(focusGoalMin)}` },
-    { label: 'Tasks done', value: null, detail: 'No tasks due' },
-    { label: 'Session quality', value: null, detail: 'No sessions' },
-  ] });
-}
-
-// Daily score bars for the last 7 days; today uses the accent color
-function renderScoreWeek(today) {
-  const box = $('scoreWeek');
-  box.textContent = '';
-  const said = [];
-  for (let i = 6; i >= 0; i--) {
-    const k = shiftKey(today, -i);
-    const r = dayScore(k);
-    const name = i === 0 ? 'Today' : WD[keyToDate(k).getDay()];
-    const col = el('div', 'sw-col' + (i === 0 ? ' today' : ''));
-    const bar = el('i', 'sw-bar' + (r ? '' : ' none'));
-    if (r) bar.style.height = Math.max(2, Math.round(r.score * 1.1)) + 'px';
-    col.append(el('span', 'sw-val', r ? String(r.score) : '–'), bar, el('span', 'sw-day', name));
-    box.append(col);
-    said.push(`${name} ${r ? r.score : 'no data'}`);
-  }
-  box.setAttribute('aria-label', 'Daily scores: ' + said.join(', '));
 }
 
 function renderSessions(T, list, emptyText) {
@@ -318,224 +196,15 @@ function renderSessions(T, list, emptyText) {
   });
 }
 
-function renderWeek(today) {
-  // Monday-to-today this week vs the same weekdays last week (a fair comparison mid-week)
-  const d = keyToDate(today);
-  const since = (d.getDay() + 6) % 7;   // days since Monday
-  const sum = (offset) => {
-    const r = { focus: 0, desk: 0, blocks: 0 };
-    for (let i = 0; i <= since; i++) {
-      const x = peekDay(shiftKey(today, -i - offset));
-      r.focus += x.focus; r.desk += deskOf(x); r.blocks += x.blocks;
-    }
-    return r;
-  };
-  const cur = sum(0), prev = sum(7);
-  $('weekTitle').textContent = since === 0 ? 'Today vs last Monday'
-    : `This week vs last week (Mon–${WD[d.getDay()]})`;
-  const grid = $('weekGrid');
-  grid.textContent = '';
-  [['Focused', cur.focus, prev.focus, false], ['Desk time', cur.desk, prev.desk, false], ['Focus blocks', cur.blocks, prev.blocks, true]]
-    .forEach(([label, c, p, count]) => {
-      const cell = el('div');
-      let change = '';
-      if (p > 0) {
-        const pct = Math.round((c - p) / p * 100);
-        change = pct === 0 ? 'no change' : `${pct > 0 ? '▲ +' : '▼ −'}${Math.abs(pct)}%`;
-      } else if (c > 0) change = 'new';
-      const cls = change.startsWith('▲') ? 'delta-up' : change.startsWith('▼') ? 'delta-down' : 'delta-flat';
-      cell.append(
-        el('div', 'w-label', label),
-        el('div', 'w-value', count ? String(c) : fmtSecs(c)),
-        el('div', 'w-prev', `last week ${count ? p : fmtSecs(p)}`),
-      );
-      if (change) cell.append(el('div', 't-delta ' + cls, change));
-      grid.append(cell);
-    });
-}
-
-function rangeDays(today) {
-  const days = [];
-  for (let i = range - 1; i >= 0; i--) {
-    const k = shiftKey(today, -i);
-    days.push({ k, d: peekDay(k) });
-  }
-  return days;
-}
-
-const SVGNS = 'http://www.w3.org/2000/svg';
-function svg(tag, attrs, text) {
-  const e = document.createElementNS(SVGNS, tag);
-  for (const a in attrs) e.setAttribute(a, attrs[a]);
-  if (text != null) e.textContent = text;
-  return e;
-}
-function topRoundedRect(x, y, w, h, r) {
-  r = Math.min(r, h, w / 2);
-  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
-}
-
-function renderChart(today) {
-  const wrap = $('chart');
-  const tip = $('tip');
-  wrap.querySelectorAll('svg').forEach(n => n.remove());
-  const W = Math.max(280, wrap.clientWidth || 560), H = 220;
-  const M = { top: 22, right: 4, bottom: 26, left: 38 };
-  const pw = W - M.left - M.right, ph = H - M.top - M.bottom;
-  const days = rangeDays(today);
-  const series = [['focus', 'var(--s1)', 'Focus'], ['brk', 'var(--s2)', 'Break'], ['other', 'var(--s3)', 'Paused & other']];
-
-  const maxMin = Math.max(30, ...days.map(x => deskOf(x.d) / 60));
-  const step = [5, 10, 15, 30, 60, 120, 180, 240, 360].find(s => maxMin / s <= 4) || 480;
-  const yMax = Math.ceil(maxMin / step) * step;
-  const y = min => M.top + ph - (min / yMax) * ph;
-
-  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img',
-    'aria-label': `Stacked columns of desk time per day for the last ${range} days. The same numbers are in the table below.` });
-
-  for (let v = 0; v <= yMax; v += step) {
-    const yy = Math.round(y(v)) + 0.5;
-    root.append(svg('line', { x1: M.left, x2: W - M.right, y1: yy, y2: yy, class: v === 0 ? 'baseline' : 'gridline' }));
-    root.append(svg('text', { x: M.left - 8, y: yy + 4, 'text-anchor': 'end', class: 'tick' }, fmtAxis(v)));
-  }
-
-  const band = pw / days.length;
-  const bw = Math.max(4, Math.min(24, band * 0.62));
-  const labelEvery = days.length <= 7 ? 1 : days.length <= 14 ? 2 : 5;
-  const bars = [];
-
-  days.forEach((x, i) => {
-    const cx = M.left + band * i + band / 2;
-    const g = svg('g', { class: 'bar' });
-    // stack bottom-up with a 2px surface gap between segments
-    const segs = series.map(([key, color]) => ({ h: (x.d[key] / 60) / yMax * ph, color })).filter(s => s.h >= 0.5);
-    let base = M.top + ph;
-    segs.forEach((s, j) => {
-      const isTop = j === segs.length - 1;
-      const h = isTop ? s.h : Math.max(0, s.h - 2);
-      const top = base - h;
-      if (h > 0) {
-        if (isTop) g.append(svg('path', { d: topRoundedRect(cx - bw / 2, top, bw, h, 4), fill: s.color }));
-        else g.append(svg('rect', { x: cx - bw / 2, y: top, width: bw, height: h, fill: s.color }));
-      }
-      base -= s.h;
-    });
-    root.append(g);
-    bars.push(g);
-
-    // x labels (always include today, count back from it)
-    if ((days.length - 1 - i) % labelEvery === 0) {
-      const d = keyToDate(x.k);
-      const isToday = x.k === today;
-      const txt = isToday ? 'Today' : days.length <= 7 ? WD[d.getDay()] : `${MO[d.getMonth()]} ${d.getDate()}`;
-      const nearEdge = i === days.length - 1 && band < 44;   // keep "Today" inside the chart
-      root.append(svg('text', { x: nearEdge ? W - M.right : cx, y: H - 6, 'text-anchor': nearEdge ? 'end' : 'middle',
-        class: 'xlabel' + (isToday ? ' today' : '') }, txt));
-    }
-  });
-
-  // one selective direct label: today's total on its cap
-  const t = days[days.length - 1];
-  const tDesk = deskOf(t.d);
-  if (tDesk >= 60) {
-    const cx = M.left + band * (days.length - 1) + band / 2;
-    const edge = cx + 26 > W - M.right;
-    root.append(svg('text', { x: edge ? W - M.right : cx, y: y(tDesk / 60) - 6, 'text-anchor': edge ? 'end' : 'middle', class: 'vlabel' }, fmtSecs(tDesk)));
-  }
-
-  if (days.every(x => deskOf(x.d) < 1)) {
-    root.append(svg('text', { x: M.left + pw / 2, y: M.top + ph / 2, 'text-anchor': 'middle', class: 'empty' },
-      'No study time recorded in this range yet'));
-  }
-
-  // hover / focus targets: the whole day band, not just the painted bar
-  days.forEach((x, i) => {
-    const hit = svg('rect', { x: M.left + band * i, y: M.top, width: band, height: ph, class: 'hit', tabindex: 0,
-      'aria-label': `${fmtDay(x.k, today)}: ${fmtSecs(deskOf(x.d))} at desk, ${fmtSecs(x.d.focus)} focus` });
-    const show = () => {
-      wrap.classList.add('hovering');
-      bars.forEach((b, j) => b.classList.toggle('hot', j === i));
-      tip.textContent = '';
-      tip.append(el('div', 'tip-day', fmtDay(x.k, today)));
-      if (deskOf(x.d) < 1) tip.append(el('div', 'tip-row', 'No study time'));
-      else series.forEach(([key, color, name]) => {
-        const row = el('div', 'tip-row');
-        const k = el('i'); k.style.background = color;
-        row.append(k, el('b', null, fmtSecs(x.d[key])), el('span', null, name));
-        tip.append(row);
-      });
-      if (deskOf(x.d) >= 1) {
-        const tot = el('div', 'tip-row tip-total');
-        tot.append(el('i'), el('b', null, fmtSecs(deskOf(x.d))), el('span', null, 'desk time'));
-        tip.append(tot);
-      }
-      tip.classList.add('show');
-      const cx = M.left + band * i + band / 2;
-      const scale = wrap.clientWidth / W;
-      let left = cx * scale + 12;
-      if (left + tip.offsetWidth > wrap.clientWidth) left = cx * scale - tip.offsetWidth - 12;
-      tip.style.left = Math.max(0, left) + 'px';
-      tip.style.top = (M.top * scale) + 'px';
-    };
-    const hide = () => { wrap.classList.remove('hovering'); tip.classList.remove('show'); };
-    hit.addEventListener('pointerenter', show);
-    hit.addEventListener('pointerleave', hide);
-    hit.addEventListener('focus', show);
-    hit.addEventListener('blur', hide);
-    root.append(hit);
-  });
-
-  wrap.prepend(root);
-
-  // note: average over studied days in range
-  const studied = days.filter(x => x.d.focus >= 60);
-  $('chartNote').textContent = studied.length
-    ? `Studied on ${studied.length} of the last ${range} days · average ${fmtSecs(studied.reduce((a, x) => a + x.d.focus, 0) / studied.length)} of focus on those days`
-    : '';
-}
-
-function renderTable(today) {
-  const body = $('histBody');
-  body.textContent = '';
-  const rows = rangeDays(today).filter(x => deskOf(x.d) >= 1 || dayScore(x.k)).reverse();
-  $('histEmpty').hidden = rows.length > 0;
-  rows.forEach(({ k, d }) => {
-    const tr = el('tr');
-    const desk = deskOf(d);
-    const sc = dayScore(k);
-    [[fmtDay(k, today)], [sc ? String(sc.score) : '—'], [fmtSecs(desk)], [fmtSecs(d.focus)], [fmtSecs(d.brk)], [fmtSecs(d.other), 'opt'], [String(d.blocks)],
-     [desk >= 60 ? Math.round(d.focus / desk * 100) + '%' : '—', 'opt']]
-      .forEach(([v, cls]) => tr.append(el('td', cls, v)));
-    body.append(tr);
-  });
-}
-
-
-// ---------------------------------------------------------------- range, goal, export, backup
-document.querySelectorAll('[data-range]').forEach(btn => btn.addEventListener('click', () => {
-  range = Number(btn.dataset.range);
-  document.querySelectorAll('[data-range]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
-  try { localStorage.setItem('pomodoro-range', range); } catch (e) {}
-  renderAnalytics();
-}));
-try {
-  const r = Number(localStorage.getItem('pomodoro-range'));
-  if ([7, 14, 30].includes(r)) {
-    range = r;
-    document.querySelectorAll('[data-range]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.range) === r)));
-  }
-} catch (e) {}
-
+// ---------------------------------------------------------------- goal, export, backup (in Settings)
 $('goalSelect').value = String(focusGoalMin);
 if ($('goalSelect').value !== String(focusGoalMin)) {   // a custom goal not in the list
   $('goalSelect').append(new Option(fmtDuration(focusGoalMin), String(focusGoalMin), true, true));
 }
 $('goalSelect').addEventListener('change', () => {
   setFocusGoal(Number($('goalSelect').value));
-  renderAnalytics();
+  refreshView();
 });
-
-new ResizeObserver(() => { if (!$('analyticsView').hidden) renderChart(dayKey(Date.now())); }).observe($('chart'));
 
 function download(name, text, type) {
   const blob = new Blob([text], { type });
@@ -547,17 +216,19 @@ function download(name, text, type) {
 }
 
 $('exportBtn').addEventListener('click', () => {
-  const rows = [['date', 'score', 'day_rating', 'day_rating_high', 'desk_minutes', 'focus_minutes', 'break_minutes', 'paused_other_minutes', 'focus_blocks', 'sessions', 'tasks_done']];
+  const rows = [['date', 'score', 'day_rating', 'day_rating_high', 'desk_minutes', 'focus_minutes', 'break_minutes', 'paused_other_minutes', 'focus_blocks', 'sessions', 'tasks_done', 'sleep_hours']];
   const keys = typeof Sync !== 'undefined' ? Sync.allDayKeys() : new Set(Object.keys(store.days));
   (typeof tasks !== 'undefined' ? tasks.items : []).forEach(t => { if (t.done) keys.add(dayKey(t.done)); });
   if (typeof journal !== 'undefined') Object.keys(journal.entries).forEach(k => keys.add(k));
+  if (typeof sleepLog !== 'undefined') Object.keys(sleepLog.entries).forEach(k => keys.add(k));
   [...keys].sort().forEach(k => {
     const d = peekDay(k);
     const m = v => (v / 60).toFixed(1);
     const sc = dayScore(k);
     const je = typeof journalEntry === 'function' ? journalEntry(k) : null;
+    const sl = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
     rows.push([k, sc ? sc.score : '', je ? ratingLo(je) : '', je ? ratingHi(je) : '', m(deskOf(d)), m(d.focus), m(d.brk), m(d.other), d.blocks,
-      (d.sessions || []).length, taskStatsForDay(k).doneCount]);
+      (d.sessions || []).length, taskStatsForDay(k).doneCount, sl ? (sleepMinutes(sl) / 60).toFixed(2) : '']);
   });
   download(`pomodoro-history-${dayKey(Date.now())}.csv`, rows.map(r => r.join(',')).join('\n'), 'text/csv');
 });
@@ -566,7 +237,9 @@ $('backupBtn').addEventListener('click', () => {
   saveStore(true);
   const data = { app: 'pomodoro', version: 1, exported: new Date().toISOString(),
     analytics: store, tasks: typeof tasks !== 'undefined' ? tasks : null,
-    journal: typeof journal !== 'undefined' ? journal : null, goal: focusGoalMin };
+    journal: typeof journal !== 'undefined' ? journal : null,
+    habits: typeof habits !== 'undefined' ? habits : null,
+    sleep: typeof sleepLog !== 'undefined' ? sleepLog : null, goal: focusGoalMin };
   download(`pomodoro-backup-${dayKey(Date.now())}.json`, JSON.stringify(data), 'application/json');
 });
 $('restoreBtn').addEventListener('click', () => $('restoreFile').click());
@@ -581,8 +254,10 @@ $('restoreFile').addEventListener('change', async () => {
     saveStore(true);
     if (data.tasks && Array.isArray(data.tasks.items) && typeof restoreTasks === 'function') restoreTasks(data.tasks);
     if (data.journal && data.journal.entries && typeof restoreJournal === 'function') restoreJournal(data.journal);
+    if (data.habits && data.habits.items && typeof restoreHabits === 'function') restoreHabits(data.habits);
+    if (data.sleep && data.sleep.entries && typeof restoreSleep === 'function') restoreSleep(data.sleep);
     if (data.goal) { setFocusGoal(Number(data.goal)); $('goalSelect').value = String(data.goal); }
-    renderAnalytics();
+    refreshView();
     toast('Backup restored');
   } catch (e) {
     toast("That file isn't a Pomegranate backup");
@@ -604,6 +279,6 @@ $('clearBtn').addEventListener('click', () => {
   liveSession = null;
   saveStore(true);
   if (typeof Sync !== 'undefined') Sync.clearDays();   // also from other synced devices
-  renderAnalytics();
+  refreshView();
   toast('Study history cleared (tasks kept)');
 });

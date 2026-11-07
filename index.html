@@ -13,7 +13,7 @@
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/nunito.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.05b">
+<link rel="stylesheet" href="style.css?v=2026.11.07b">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -47,8 +47,11 @@
       <button role="tab" id="tabJournal" data-tab="journal" aria-selected="false" aria-controls="journalView">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h8M16.5 4a2.1 2.1 0 0 1 3 3L8 18.5l-4 1 1-4z"/></svg><span>Journal</span>
       </button>
-      <button role="tab" id="tabStats" data-tab="analytics" aria-selected="false" aria-controls="analyticsView">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M7 15v-3M12 15V7M17 15v-6"/></svg><span>Analytics</span>
+      <button role="tab" id="tabHabits" data-tab="habits" aria-selected="false" aria-controls="habitsView">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span>Habits</span>
+      </button>
+      <button role="tab" id="tabSleep" data-tab="sleep" aria-selected="false" aria-controls="sleepView">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><span>Sleep</span>
       </button>
     </div>
 
@@ -93,6 +96,25 @@
             <button type="button" data-mode="light" aria-pressed="false">Light</button>
             <button type="button" data-mode="dark" aria-pressed="false">Dark</button>
           </div>
+          <hr class="tm-sep">
+          <h3>Focus</h3>
+          <label class="tm-field">Daily focus goal
+            <select id="goalSelect">
+              <option value="60">1h</option><option value="90">1h 30m</option><option value="120">2h</option><option value="180">3h</option>
+              <option value="240">4h</option><option value="300">5h</option><option value="360">6h</option>
+            </select>
+          </label>
+          <p class="sync-note">Used by the productivity score on the Timer and Calendar.</p>
+          <hr class="tm-sep">
+          <h3>Your data</h3>
+          <p class="sync-note">Everything is saved in this browser. Back up / Restore moves it to another browser or the installed app.</p>
+          <div class="tm-btns">
+            <button id="backupBtn" type="button" class="small">Back up</button>
+            <button id="restoreBtn" type="button" class="small">Restore</button>
+            <button id="exportBtn" type="button" class="small">Export CSV</button>
+            <button id="clearBtn" type="button" class="small danger">Clear study history</button>
+          </div>
+          <input type="file" id="restoreFile" accept="application/json,.json" hidden>
           </div>
         </div>
       </div>
@@ -234,15 +256,15 @@
   <div id="tasksView" class="view" role="tabpanel" aria-labelledby="tabTasks" hidden>
     <header class="page-head">
       <div class="ph-text">
-        <h2 id="taskTitle">Today</h2>
+        <h2 id="taskTitle">All tasks</h2>
         <p id="taskSub"></p>
       </div>
       <select id="projFilter" aria-label="Project filter"></select>
       <button type="button" id="projDelete" class="small danger" hidden title="Delete this project (its tasks are kept)">Delete project</button>
       <div class="seg" id="taskViewSeg" role="group" aria-label="Task view">
-        <button type="button" data-view="today" aria-pressed="true">Today</button>
+        <button type="button" data-view="today" aria-pressed="false">Today</button>
         <button type="button" data-view="upcoming" aria-pressed="false">Upcoming</button>
-        <button type="button" data-view="all" aria-pressed="false">All</button>
+        <button type="button" data-view="all" aria-pressed="true">All</button>
         <button type="button" data-view="done" aria-pressed="false">Done</button>
       </div>
     </header>
@@ -310,7 +332,7 @@
         <span class="q"><i style="background:var(--m-green)"></i>9–10</span>
       </div>
       <div class="cal-legend" id="legendScore">
-        <span>Number on the right = productivity score</span>
+        <span>Number on the right = productivity score · 😴 = hours slept</span>
       </div>
     </div>
     <div class="box pad" id="calDay"></div>
@@ -357,108 +379,72 @@
     </section>
   </div>
 
-  <!-- ============================== ANALYTICS ============================== -->
-  <div id="analyticsView" class="view" role="tabpanel" aria-labelledby="tabStats" hidden>
+  <!-- ============================== HABITS ============================== -->
+  <div id="habitsView" class="view wide" role="tabpanel" aria-labelledby="tabHabits" hidden>
     <header class="page-head">
       <div class="ph-text">
-        <h2>Today</h2>
-        <p id="todayLabel"></p>
+        <h2 id="habitTitle"></h2>
+        <p id="habitSub"></p>
       </div>
-      <label class="inline-field">Focus goal
-        <select id="goalSelect">
-          <option value="60">1h</option><option value="90">1h 30m</option><option value="120">2h</option><option value="180">3h</option>
-          <option value="240">4h</option><option value="300">5h</option><option value="360">6h</option>
-        </select>
-      </label>
+      <div class="cal-nav">
+        <button type="button" id="habitPrev" class="icon-btn" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button type="button" id="habitToday" class="small">This month</button>
+        <button type="button" id="habitNext" class="icon-btn" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      </div>
     </header>
 
-    <section class="score-card" aria-label="Productivity score">
-      <div class="score-hero">
-        <div class="score-label">Productivity score</div>
-        <div class="score-value"><span id="scoreValue">—</span><small>/100</small></div>
-        <div class="t-delta" id="scoreDelta"></div>
-        <div class="t-sub" id="scoreAvg"></div>
+    <form class="quick-add box habit-add" id="habitForm" autocomplete="off">
+      <div class="qa-row">
+        <span class="qa-plus" aria-hidden="true">+</span>
+        <input id="habitInput" aria-label="New habit" placeholder="Add a habit — e.g. Read 20 pages" maxlength="60">
+        <button class="primary small" type="submit">Add</button>
       </div>
-      <div class="score-side">
-        <div class="score-parts" id="scoreParts"></div>
-        <details class="score-how">
-          <summary>How the score works</summary>
-          <div class="how-body">
-            <p><b>Daily score</b> combines up to three parts. Any part with nothing to measure yet is left out and the others are scaled up.</p>
-            <ul>
-              <li><b>Focus time (40%)</b>: focus minutes compared with your daily focus goal (set above).</li>
-              <li><b>Tasks done (30%)</b>: tasks due that day (or finished that day), weighted by difficulty. A difficulty-5 task counts five times as much as a difficulty-1 task.</li>
-              <li><b>Session quality (30%)</b>: the average of that day's session scores, weighted by focus time.</li>
-            </ul>
-            <p><b>Session score</b> rates each timer session:</p>
-            <ul>
-              <li><b>Completion (45%)</b>: full marks if you finished all cycles or checked off a task during it; otherwise the share of planned focus you did.</li>
-              <li><b>Efficiency (35%)</b>: how much of your desk time was focus, compared with what your focus/break plan allows. Long pauses lower it.</li>
-              <li><b>Intensity (20%)</b>: the difficulty of the task(s) you worked on (difficulty ÷ 5). Sessions without a task count as 2.5.</li>
-            </ul>
-          </div>
-        </details>
+    </form>
+
+    <p class="empty-msg" id="habitEmpty">No habits yet. Add one above, then tap a day to mark it ✓ yes, tap again for ✕ no, and once more to clear it.</p>
+    <div class="hb-wrap" id="habitGrid"></div>
+    <p class="hb-help">Tap a day: ✓ yes → ✕ no → blank. Tap a habit's name to rename it.</p>
+  </div>
+
+  <!-- ============================== SLEEP ============================== -->
+  <div id="sleepView" class="view" role="tabpanel" aria-labelledby="tabSleep" hidden>
+    <header class="page-head">
+      <div class="ph-text">
+        <h2>Sleep</h2>
+        <p id="sleepSub"></p>
       </div>
-    </section>
+      <label class="inline-field">Woke up on <input type="date" id="sDate"></label>
+    </header>
 
-    <div class="tiles" id="tiles"></div>
-    <p class="a-line" id="summaryLine"></p>
-
-    <section class="score-week" aria-labelledby="scoreWeekTitle">
-      <h3 id="scoreWeekTitle">Score, last 7 days</h3>
-      <div class="sw-bars" id="scoreWeek" role="img"></div>
-    </section>
-
-    <section class="section">
-      <h3>Today's sessions</h3>
-      <ul class="sessions" id="sessionList"></ul>
-    </section>
-
-    <section class="section">
-      <h3 id="weekTitle">This week vs last week</h3>
-      <div class="week-grid" id="weekGrid"></div>
-    </section>
+    <form class="box pad sleep-form" id="sleepForm" autocomplete="off">
+      <div class="s-night" id="sNight"></div>
+      <div class="s-times-row">
+        <label class="s-field">Went to bed <input type="time" id="sBed" required></label>
+        <span class="s-arrow" aria-hidden="true">→</span>
+        <label class="s-field">Woke up <input type="time" id="sWake" required></label>
+        <div class="s-total"><span>Slept</span><b id="sDur" class="s-dur">—</b></div>
+      </div>
+      <div class="tm-label">How well did you sleep? <span class="faint">(optional)</span></div>
+      <div class="seg s-quality" id="sQuality" role="group" aria-label="Sleep quality"></div>
+      <div class="j-actions">
+        <button type="button" id="sDelete" class="small danger" hidden>Delete</button>
+        <button type="submit" class="primary small" id="sSave">Save night</button>
+      </div>
+    </form>
 
     <section class="section">
       <div class="section-head">
-        <h3>History</h3>
-        <div class="seg" role="group" aria-label="Date range">
-          <button type="button" data-range="7" aria-pressed="false">7 days</button>
-          <button type="button" data-range="14" aria-pressed="true">14 days</button>
-          <button type="button" data-range="30" aria-pressed="false">30 days</button>
-        </div>
+        <h3>Last 14 nights</h3>
+        <span class="s-legend"><i class="good"></i>7h or more <i class="short"></i>under 7h</span>
       </div>
-      <h4 class="sub-head">Time at your desk each day</h4>
-      <div class="legend">
-        <span><i style="background:var(--s1)"></i>Focus</span>
-        <span><i style="background:var(--s2)"></i>Break</span>
-        <span><i style="background:var(--s3)"></i>Paused &amp; other</span>
-      </div>
-      <div class="chart" id="chart"><div class="tip" id="tip" role="tooltip"></div></div>
-      <p class="note" id="chartNote"></p>
+      <div class="sleep-chart" id="sleepChart"></div>
     </section>
 
     <section class="section">
-      <h3>Daily breakdown</h3>
-      <div class="table-wrap">
-        <table class="hist">
-          <thead><tr>
-            <th>Day</th><th>Score</th><th>Desk time</th><th>Focus</th><th>Break</th><th class="opt">Paused &amp; other</th><th>Blocks</th><th class="opt">Focus %</th>
-          </tr></thead>
-          <tbody id="histBody"></tbody>
-        </table>
-      </div>
-      <p class="empty-msg" id="histEmpty" hidden>No study time in this range yet.</p>
+      <h3>Recent nights</h3>
+      <p class="empty-msg" id="sleepEmpty">No nights logged yet.</p>
+      <div class="s-list" id="sleepList"></div>
     </section>
-
-    <div class="a-foot">
-      <span>Time is recorded while this page is connected to the timer. Everything is saved in this browser only, so use Back up / Restore to move it to another browser or the installed app.</span>
-      <button id="exportBtn" type="button" class="small">Export CSV</button>
-      <button id="backupBtn" type="button" class="small">Back up</button>
-      <button id="restoreBtn" type="button" class="small">Restore</button>
-      <input type="file" id="restoreFile" accept="application/json,.json" hidden>
-      <button id="clearBtn" type="button" class="small danger">Clear study history</button>
-    </div>
   </div>
   </div>
 </div>
@@ -479,19 +465,21 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.11.05b"></script>
-<script src="localtimer.js?v=2026.11.05b"></script>
-<script src="notify.js?v=2026.11.05b"></script>
-<script src="score.js?v=2026.11.05b"></script>
-<script src="analytics.js?v=2026.11.05b"></script>
-<script src="tasks.js?v=2026.11.05b"></script>
-<script src="calendar.js?v=2026.11.05b"></script>
-<script src="journal.js?v=2026.11.05b"></script>
-<script src="sync.js?v=2026.11.05b"></script>
-<script src="livesync.js?v=2026.11.05b"></script>
-<script src="push.js?v=2026.11.05b"></script>
-<script src="theme.js?v=2026.11.05b"></script>
-<script src="shortcuts.js?v=2026.11.05b"></script>
-<script src="main.js?v=2026.11.05b"></script>
+<script src="app.js?v=2026.11.07b"></script>
+<script src="localtimer.js?v=2026.11.07b"></script>
+<script src="notify.js?v=2026.11.07b"></script>
+<script src="score.js?v=2026.11.07b"></script>
+<script src="analytics.js?v=2026.11.07b"></script>
+<script src="tasks.js?v=2026.11.07b"></script>
+<script src="calendar.js?v=2026.11.07b"></script>
+<script src="journal.js?v=2026.11.07b"></script>
+<script src="habits.js?v=2026.11.07b"></script>
+<script src="sleep.js?v=2026.11.07b"></script>
+<script src="sync.js?v=2026.11.07b"></script>
+<script src="livesync.js?v=2026.11.07b"></script>
+<script src="push.js?v=2026.11.07b"></script>
+<script src="theme.js?v=2026.11.07b"></script>
+<script src="shortcuts.js?v=2026.11.07b"></script>
+<script src="main.js?v=2026.11.07b"></script>
 </body>
 </html>

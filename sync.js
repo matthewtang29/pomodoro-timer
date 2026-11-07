@@ -1,5 +1,5 @@
 // ================================================================= CLOUD SYNC
-// Sign in with Google to keep tasks, journal entries, study history and the focus
+// Sign in with Google to keep tasks, journal entries, habits, sleep, study history and the focus
 // goal in sync between devices (Firebase Firestore, free tier).
 //
 // How it works
@@ -9,11 +9,13 @@
 //   time ("u"). When two devices change the same item, the newer change wins.
 //   Deleted items leave a small "deleted" marker so the deletion syncs too.
 // - Study history (focus/break time, sessions) is stored per device, so two
-//   devices studying on the same day never overwrite each other. The Analytics
-//   and Calendar tabs add up all devices.
+//   devices studying on the same day never overwrite each other. The Calendar
+//   and the timer's stats add up all devices.
 //
 // Cloud layout:  users/{uid}/tasks/{taskId}
 //                users/{uid}/journal/{YYYY-MM-DD}
+//                users/{uid}/habits/{habitId}
+//                users/{uid}/sleep/{YYYY-MM-DD}
 //                users/{uid}/days/{YYYY-MM-DD}__{deviceId}
 //                users/{uid}/meta/settings
 
@@ -44,11 +46,13 @@ const Sync = (() => {
 
   // ---------------------------------------------------------------- change tracking (always on)
   // prev: last known JSON of each item (without its "u"), to notice what changed on save
-  const prev = { tasks: {}, journal: {}, days: {} };
+  const prev = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
   const tomb = read(LS.tomb, { tasks: {}, journal: {} });   // deleted item -> when
+  tomb.habits = tomb.habits || {};
+  tomb.sleep = tomb.sleep || {};
   let remoteDays = read(LS.remote, {});                      // deviceId -> { date: day }
   let metaU = read(LS.metaU, 0);
-  const dirty = { tasks: new Set(), journal: new Set(), days: new Set(), meta: false };
+  const dirty = { tasks: new Set(), journal: new Set(), days: new Set(), habits: new Set(), sleep: new Set(), meta: false };
   let applying = false;     // true while writing changes that came from the cloud
 
   const bare = o => { const c = { ...o }; delete c.u; return JSON.stringify(c); };
@@ -57,6 +61,8 @@ const Sync = (() => {
   function itemsOf(kind) {
     if (kind === 'tasks') return Object.fromEntries(tasks.items.map(t => [t.id, t]));
     if (kind === 'journal') return journal.entries;
+    if (kind === 'habits') return habits.items;
+    if (kind === 'sleep') return sleepLog.entries;
     return store.days;
   }
 
@@ -83,7 +89,7 @@ const Sync = (() => {
   function stampMeta() { if (applying) return; metaU = now(); write(LS.metaU, metaU); dirty.meta = true; schedule(2000); }
 
   function primePrev() {
-    ['tasks', 'journal', 'days'].forEach(kind => {
+    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(kind => {
       for (const [id, item] of Object.entries(itemsOf(kind))) prev[kind][id] = bare(item);
     });
   }
@@ -123,7 +129,7 @@ const Sync = (() => {
   let sdkPromise = null;
   let unsubs = [];
   let firstLoaded = {};
-  let remoteU = { tasks: {}, journal: {}, days: {} };
+  let remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
   let flushTimer = null, flushing = false;
   let state = 'off', lastSynced = 0, lastError = '';
   let justSignedIn = false;   // show the welcome message only right after pressing Sign in
@@ -183,7 +189,7 @@ const Sync = (() => {
     user = u;
     write(LS.enabled, true);
     firstLoaded = {};
-    remoteU = { tasks: {}, journal: {}, days: {} };
+    remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
     setState('syncing');
     unsubs.forEach(f => f());
     const err = e => { setState('error', e.message || String(e)); };
@@ -192,6 +198,8 @@ const Sync = (() => {
       col('journal').onSnapshot(s => onSnap('journal', s), err),
       col('days').onSnapshot(s => onSnap('days', s), err),
       col('meta').onSnapshot(s => onSnap('meta', s), err),
+      col('habits').onSnapshot(s => onSnap('habits', s), err),
+      col('sleep').onSnapshot(s => onSnap('sleep', s), err),
     ];
     db.collection(`users/${u.uid}/devices`).doc(deviceId).set({ name: deviceName, lastSeen: now() }).catch(() => {});
     if (typeof LiveSync !== 'undefined') LiveSync.onAuth(u, db);   // shared timer sessions
@@ -243,7 +251,7 @@ const Sync = (() => {
           changed = true;
           return;
         }
-        // tasks / journal
+        // tasks / journal / habits / sleep
         remoteU[kind][doc.id] = data.u || 0;
         if (ch.type === 'removed') return;
         const items = itemsOf(kind);
@@ -253,7 +261,7 @@ const Sync = (() => {
         if (data.deleted) {
           if (local) {
             if (kind === 'tasks') tasks.items = tasks.items.filter(t => t.id !== doc.id);
-            else delete journal.entries[doc.id];
+            else delete items[doc.id];
             changed = true;
           }
           tomb[kind][doc.id] = data.u;
@@ -263,7 +271,7 @@ const Sync = (() => {
             const i = tasks.items.findIndex(t => t.id === doc.id);
             if (i >= 0) tasks.items[i] = item; else tasks.items.push(item);
           } else {
-            journal.entries[doc.id] = item;
+            items[doc.id] = item;
           }
           delete tomb[kind][doc.id];
           changed = true;
@@ -272,6 +280,8 @@ const Sync = (() => {
       if (changed) {
         if (kind === 'tasks') saveTasks();
         if (kind === 'journal') saveJournal();
+        if (kind === 'habits') saveHabits();
+        if (kind === 'sleep') saveSleep();
         if (kind === 'days') write(LS.remote, remoteDays);
         write(LS.tomb, tomb);
       }
@@ -282,7 +292,7 @@ const Sync = (() => {
     if (!firstLoaded[kind]) {
       firstLoaded[kind] = true;
       queueLocalNewer(kind);
-      if (['tasks', 'journal', 'days', 'meta'].every(k => firstLoaded[k])) {
+      if (['tasks', 'journal', 'days', 'meta', 'habits', 'sleep'].every(k => firstLoaded[k])) {
         flush().then(() => {
           if (justSignedIn) toast('Sync is on: tasks, journal and history now sync across your devices');
           justSignedIn = false;
@@ -309,7 +319,8 @@ const Sync = (() => {
       if (!$('tasksView').hidden) renderTasks();
       if (!$('calView').hidden) renderCalendar();
       if (!$('journalView').hidden && !jDirty) renderJournal();
-      if (!$('analyticsView').hidden) renderAnalytics();
+      if (!$('habitsView').hidden) renderHabits();
+      if (!$('sleepView').hidden && !$('sleepForm').contains(document.activeElement)) renderSleep();
       renderTimerTask();
       renderProjectLists();
     } catch (e) {}
@@ -338,6 +349,16 @@ const Sync = (() => {
       if (e) ops.push(['set', col('journal').doc(id), clean(e)]);
       else if (tomb.journal[id]) ops.push(['set', col('journal').doc(id), { deleted: true, u: tomb.journal[id] }]);
     });
+    dirty.habits.forEach(id => {
+      const h = habits.items[id];
+      if (h) ops.push(['set', col('habits').doc(id), clean(h)]);
+      else if (tomb.habits[id]) ops.push(['set', col('habits').doc(id), { deleted: true, u: tomb.habits[id] }]);
+    });
+    dirty.sleep.forEach(id => {
+      const e = sleepLog.entries[id];
+      if (e) ops.push(['set', col('sleep').doc(id), clean(e)]);
+      else if (tomb.sleep[id]) ops.push(['set', col('sleep').doc(id), { deleted: true, u: tomb.sleep[id] }]);
+    });
     dirty.days.forEach(date => {
       const d = store.days[date];
       const ref = col('days').doc(`${date}__${deviceId}`);
@@ -347,8 +368,8 @@ const Sync = (() => {
     if (dirty.meta) ops.push(['set', col('meta').doc('settings'), { goal: focusGoalMin, u: metaU || now() }]);
     if (!ops.length) { setState('synced'); return; }
 
-    const sent = { tasks: [...dirty.tasks], journal: [...dirty.journal], days: [...dirty.days], meta: dirty.meta };
-    dirty.tasks.clear(); dirty.journal.clear(); dirty.days.clear(); dirty.meta = false;
+    const sent = { tasks: [...dirty.tasks], journal: [...dirty.journal], days: [...dirty.days], habits: [...dirty.habits], sleep: [...dirty.sleep], meta: dirty.meta };
+    dirty.tasks.clear(); dirty.journal.clear(); dirty.habits.clear(); dirty.sleep.clear(); dirty.days.clear(); dirty.meta = false;
     flushing = true;
     setState('syncing');
     try {
@@ -362,7 +383,7 @@ const Sync = (() => {
     } catch (e) {
       // put everything back so it's retried
       sent.tasks.forEach(x => dirty.tasks.add(x)); sent.journal.forEach(x => dirty.journal.add(x));
-      sent.days.forEach(x => dirty.days.add(x)); if (sent.meta) dirty.meta = true;
+      sent.days.forEach(x => dirty.days.add(x)); sent.habits.forEach(x => dirty.habits.add(x)); sent.sleep.forEach(x => dirty.sleep.add(x)); if (sent.meta) dirty.meta = true;
       setState('error', navigator.onLine ? (e.message || String(e)) : 'Offline');
       setTimeout(() => schedule(2000), 30000);
     } finally {
@@ -423,7 +444,7 @@ const Sync = (() => {
     box.append(row);
   }
   function queueAll() {
-    ['tasks', 'journal', 'days'].forEach(k => queueLocalNewer(k));
+    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => queueLocalNewer(k));
   }
 
   // ---------------------------------------------------------------- start

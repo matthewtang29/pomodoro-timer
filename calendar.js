@@ -54,6 +54,11 @@ function renderCalendar() {
     top.append(badges);
     cell.append(top);
 
+    // hours slept the night before (filed under the morning you woke up)
+    const se = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
+    const slept = se ? sleepMinutes(se) : 0;
+    if (se) cell.append(el('div', 'c-sleep ' + sleepCls(slept), '😴 ' + fmtSleepShort(slept)));
+
     const due = tasksDueOn(k);
     due.slice(0, 3).forEach(t => {
       const row = el('div', 'c-task' + (t.done ? ' done' : ''));
@@ -72,6 +77,7 @@ function renderCalendar() {
     const label = [d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })];
     if (je) label.push(`day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10`);
     if (sc) label.push(`productivity score ${sc.score}`);
+    if (se) label.push(`slept ${fmtSleep(slept)}`);
     if (due.length) label.push(`${due.length} task${due.length > 1 ? 's' : ''} due`);
     cell.setAttribute('aria-label', label.join(', '));
     cell.setAttribute('aria-pressed', String(k === calSelected));
@@ -121,6 +127,27 @@ function renderCalDay() {
     jbox.append(jh);
     if (je && je.text) jbox.append(el('p', 'day-journal-text', je.text));
     box.append(jbox);
+  }
+
+  // sleep: the night that ended this morning
+  const se = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
+  if (se || k <= today) {
+    const sbox = el('div', 'day-sleep');
+    sbox.append(el('b', null, 'Sleep'));
+    if (se) {
+      const min = sleepMinutes(se);
+      sbox.append(
+        el('span', 's-badge ' + sleepCls(min), fmtSleep(min)),
+        el('span', 'day-sleep-times', `${fmtTimeOfDay(se.bed)} – ${fmtTimeOfDay(se.wake)}` + (se.quality ? ` · ${QUALITY_WORD[se.quality]}` : '')),
+      );
+    } else {
+      sbox.append(el('span', 'day-sleep-times', 'Not logged'));
+    }
+    const sbtn = el('button', 'small', se ? 'Edit' : 'Log sleep');
+    sbtn.type = 'button';
+    sbtn.addEventListener('click', () => openSleep(k));
+    sbox.append(sbtn);
+    box.append(sbox);
   }
 
   const day = peekDay(k);

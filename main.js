@@ -1,21 +1,31 @@
 // ================================================================= START-UP
 // Tabs, installable-app setup, and first render. Loaded last.
 
-const VIEWS = { timer: 'timerView', tasks: 'tasksView', calendar: 'calView', journal: 'journalView', analytics: 'analyticsView' };
+const VIEWS = { timer: 'timerView', tasks: 'tasksView', calendar: 'calView', journal: 'journalView', habits: 'habitsView', sleep: 'sleepView' };
 
 function showTab(name) {
   if (!VIEWS[name]) name = 'timer';
   for (const [key, id] of Object.entries(VIEWS)) $(id).hidden = key !== name;
   document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   editingId = null;
-  if (name === 'analytics') renderAnalytics();
   if (name === 'tasks') { renderProjectLists(); renderTasks(); }
   if (name === 'calendar') renderCalendar();
   if (name === 'journal') renderJournal();
+  if (name === 'habits') renderHabits();
+  if (name === 'sleep') renderSleep();
   if (name === 'timer') renderTimerTask();
   history.replaceState(null, '', name === 'timer' ? location.pathname + location.search : '#' + name);
 }
-document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+// Redraw whatever page is open (after a restore, a goal change, or clearing history)
+function refreshView() {
+  const open = Object.entries(VIEWS).find(([, id]) => !$(id).hidden);
+  showTab(open ? open[0] : 'timer');
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
+  // the Tasks button always goes back to all projects (a project in the sidebar picks one)
+  if (b.dataset.tab === 'tasks' && projFilter) { projFilter = ''; qaFollowProject(); }
+  showTab(b.dataset.tab);
+}));
 
 // Keyboard: arrow keys move between tabs when a tab has focus
 $('tabTimer').parentElement.addEventListener('keydown', e => {
