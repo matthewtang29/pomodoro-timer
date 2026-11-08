@@ -102,8 +102,10 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 body {
   background: var(--bg); color: var(--text);
   font: 14px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";   /* Inter: straight-sided a, open digits — a bit crisper */
 }
+h1, h2, h3, .tm-head h2, .page-head h2 { font-family: "Figtree", "Inter", sans-serif; }
 h1, h2, h3, h4 { margin: 0; }
 b, strong { font-weight: 600; }
 a { color: inherit; }
@@ -167,7 +169,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
   padding: 28px 18px 22px; display: flex; flex-direction: column; gap: 28px;
 }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 12px; }
-.brand-mark { width: 24px; height: 24px; border-radius: 50%; background: var(--peach); flex: none; }
+.brand-mark { width: 28px; height: 28px; border-radius: 7px; flex: none; display: block; }
 .brand h1 { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
 
 .side-tabs { display: flex; flex-direction: column; gap: 4px; }
@@ -254,7 +256,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 [data-phase="focus"] .phase { color: var(--accent-soft); }
 [data-phase="rest"] .phase { color: var(--peach-ink); }
 [data-phase="paused"] .phase { color: var(--muted); }
-.time { font-family: "Nunito", "Inter", sans-serif; font-size: clamp(56px, 18vw, 80px); font-weight: 600; letter-spacing: -.01em; line-height: 1.1; color: var(--text); }
+.time { font-family: "Figtree", "Inter", sans-serif; font-size: clamp(56px, 18vw, 80px); font-weight: 600; letter-spacing: -.02em; line-height: 1.1; color: var(--text); }
 .sub { font-size: 14px; color: var(--muted); min-height: 21px; }
 
 /* "Working on" */

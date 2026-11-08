@@ -1,8 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#d9383e"/>
-  <circle cx="256" cy="282" r="150" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="36"/>
-  <path d="M256 132 A150 150 0 1 1 106 282" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round"/>
-  <rect x="226" y="66" width="60" height="36" rx="12" fill="#fff"/>
-  <path d="M256 282 L256 196" stroke="#fff" stroke-width="30" stroke-linecap="round"/>
-  <circle cx="256" cy="282" r="22" fill="#fff"/>
+  <!-- Pomegranate: a sage-green timer whose hands are two pomegranate seeds -->
+  <rect width="512" height="512" rx="112" fill="#8FB996"/>
+  <!-- stopwatch button + stem -->
+  <rect x="220" y="62" width="72" height="42" rx="14" fill="#FAFAF7"/>
+  <rect x="242" y="96" width="28" height="30" fill="#FAFAF7"/>
+  <!-- face -->
+  <circle cx="256" cy="290" r="170" fill="#FAFAF7"/>
+  <circle cx="256" cy="290" r="146" fill="none" stroke="#DCEADF" stroke-width="10"/>
+  <!-- 12 / 3 / 6 / 9 marks -->
+  <g fill="#8FB996">
+    <rect x="248" y="150" width="16" height="30" rx="8"/>
+    <rect x="248" y="400" width="16" height="30" rx="8"/>
+    <rect x="116" y="282" width="30" height="16" rx="8"/>
+    <rect x="366" y="282" width="30" height="16" rx="8"/>
+  </g>
+  <!-- seed hands: long one to 12, short one to about 2 o'clock -->
+  <g transform="translate(256 290)">
+    <g transform="rotate(0)">
+      <ellipse cx="0" cy="-70" rx="25" ry="66" fill="#F4A582" stroke="#D9805A" stroke-width="5"/>
+      <ellipse cx="-8" cy="-92" rx="7" ry="17" fill="#FFFFFF" opacity=".6"/>
+    </g>
+    <g transform="rotate(62)">
+      <ellipse cx="0" cy="-52" rx="23" ry="48" fill="#F4A582" stroke="#D9805A" stroke-width="5"/>
+      <ellipse cx="-7" cy="-68" rx="6" ry="13" fill="#FFFFFF" opacity=".6"/>
+    </g>
+    <circle r="18" fill="#3F6B48"/>
+  </g>
 </svg>
