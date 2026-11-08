@@ -11,7 +11,7 @@
 
 param([switch]$Uninstall)
 
-$appUrl = 'https://matthewtang29.github.io/pomegranate/'
+$appUrl = 'https://matthewtang29.github.io/pomodoro-timer/'
 $programs = [Environment]::GetFolderPath('Programs')
 $folder = Join-Path $programs 'Pomegranate Hotkeys'
 

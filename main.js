@@ -64,11 +64,14 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   // A new version was just installed: offer to reload into it
   // (not automatic, so a running session isn't cut off)
   let offered = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadWorker || offered) return;
+  const offerReload = () => {
+    if (offered) return;
     offered = true;
     toast('A new version of the app is ready', 'Reload', () => location.reload());
-  });
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadWorker) offerReload(); });
+  // the app opened from its saved copy and GitHub has a newer page
+  navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'app-updated') offerReload(); });
 }
 
 let installPrompt = null;

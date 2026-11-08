@@ -88,16 +88,38 @@ document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preven
 
 // ---------------------------------------------------------------- taskbar / home-screen shortcuts
 // The app is opened as ./?do=focus or ./?do=add from the shortcut menu
-function handleLaunchAction() {
-  const params = new URLSearchParams(location.search);
-  const action = params.get('do');
-  if (!action) return;
-  params.delete('do');
-  const q = params.toString();
-  history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
-  // give the timer a moment to report in (a physical timer reconnects on launch)
+function runLaunchAction(action, delay) {
+  // give the timer a moment to report in when the app has just started
+  // (a physical timer reconnects on launch); an open window can act right away
   setTimeout(() => {
     if (action === 'focus') startClassicSession();
     else if (action === 'add') openQuickAdd();
-  }, 600);
+  }, delay);
+}
+
+const launchAction = new URLSearchParams(location.search).get('do');
+function handleLaunchAction() {
+  if (!launchAction) return;
+  const params = new URLSearchParams(location.search);
+  params.delete('do');
+  const q = params.toString();
+  history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  runLaunchAction(launchAction, 600);
+}
+
+// When the app is already open, the manifest's launch_handler ("focus-existing") makes
+// Chrome bring that window forward instead of opening a new one, and hands the
+// shortcut's URL to it here.
+if ('launchQueue' in window) {
+  let first = true;
+  window.launchQueue.setConsumer(params => {
+    const wasFirst = first;
+    first = false;
+    if (wasFirst && launchAction) return;   // this window was opened by that launch: already handled
+    if (!params.targetURL) return;
+    const url = new URL(params.targetURL);
+    const action = url.searchParams.get('do');
+    if (action) runLaunchAction(action, wasFirst ? 600 : 0);
+    else if (url.hash && !wasFirst) showTab(url.hash.slice(1));   // Tasks / Calendar / … from the app's menu
+  });
 }
