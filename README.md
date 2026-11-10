@@ -7,7 +7,7 @@ A study planner and Pomodoro timer web app. It controls my custom Arduino Pomodo
 - **Built-in timer:** no device plugged in? Sessions run in the app itself (also on phones), with the same tracking, scores, and notifications
 - **Synced sessions:** start a session on one device and it runs on all your signed-in devices; pause, resume or exit from any of them (also works for the physical timer)
 - **Timer alerts:** a notification on every device when a focus block, break, or session ends, even when the app is closed (via a small cloud function), plus an option to keep the screen awake during sessions
-- **Tasks tab:** a Todoist-style task list with natural-language quick add (`Lab report fri p1 d4 #ECE140`), priorities, difficulty ratings (1–5), projects, and Today / Upcoming / All / Done views
+- **Tasks tab:** a Todoist-style task list with natural-language quick add (`Lab report fri !high d3 #ECE140`), priorities, easy / medium / hard difficulty (sorted hardest first), projects, and Easy / Medium / Hard / All / Done views
 - **Subtasks:** break any task into a checklist; tick items off on the Tasks tab, in the Calendar, or right under the timer while you focus
 - **Link tasks to sessions:** pick what you're working on and focus time is credited to that task
 - **Calendar tab:** month view of tasks due, each day's productivity score, and your day rating (switch between showing both, productivity, or day rating)

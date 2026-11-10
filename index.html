@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -8,12 +8,12 @@
 <meta name="description" content="Pomegranate: control Matthew Tang's Arduino Pomodoro timer over USB, plan tasks, and track study time.">
 <meta name="theme-color" content="#1e1e1e">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon.svg?v=2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icons/icon-192.png?v=2">
+<link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.08d">
+<link rel="stylesheet" href="style.css?v=2026.11.10d">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -30,7 +30,7 @@
   <!-- ============================== SIDEBAR ============================== -->
   <nav class="side" aria-label="Main">
     <div class="brand">
-      <img class="brand-mark" src="icons/icon.svg?v=2" alt="" width="28" height="28">
+      <svg class="brand-mark" viewBox="72 72 370 370" aria-hidden="true"><defs><mask id="brandGap"><rect width="512" height="512" fill="#fff"/><path d="M 123 300 C 158 284, 189 300, 211 338 C 265 240, 325 150, 407 86 L 423 102 C 345 182, 275 292, 233 404 C 223 428, 201 430, 190 410 C 171 372, 151 330, 123 300 Z" stroke="#000" stroke-width="18" stroke-linejoin="round"/></mask></defs><rect x="91" y="150" width="264" height="264" fill="none" stroke="currentColor" stroke-width="30" mask="url(#brandGap)"/><path d="M 123 300 C 158 284, 189 300, 211 338 C 265 240, 325 150, 407 86 L 423 102 C 345 182, 275 292, 233 404 C 223 428, 201 430, 190 410 C 171 372, 151 330, 123 300 Z" fill="currentColor"/></svg>
       <h1>Pomegranate</h1>
     </div>
 
@@ -262,8 +262,9 @@
       <select id="projFilter" aria-label="Project filter"></select>
       <button type="button" id="projDelete" class="small danger" hidden title="Delete this project (its tasks are kept)">Delete project</button>
       <div class="seg" id="taskViewSeg" role="group" aria-label="Task view">
-        <button type="button" data-view="today" aria-pressed="false">Today</button>
-        <button type="button" data-view="upcoming" aria-pressed="false">Upcoming</button>
+        <button type="button" data-view="easy" aria-pressed="false">Easy</button>
+        <button type="button" data-view="medium" aria-pressed="false">Medium</button>
+        <button type="button" data-view="hard" aria-pressed="false">Hard</button>
         <button type="button" data-view="all" aria-pressed="true">All</button>
         <button type="button" data-view="done" aria-pressed="false">Done</button>
       </div>
@@ -299,7 +300,7 @@
         <button class="primary small" type="submit">Add task</button>
       </div>
       <p class="qa-help">Type <code>today</code>, <code>tmr</code>, <code>fri</code>, <code>oct 3</code> or <code>10/3</code> for a date,
-        <code>!high</code> or <code>!low</code> priority, <code>d1</code>–<code>d5</code> difficulty, <code>#course</code> project,
+        <code>!high</code> or <code>!low</code> priority, <code>d1</code> easy, <code>d2</code> medium or <code>d3</code> hard, <code>#course</code> project,
         <code>daily</code>, <code>weekly</code> or <code>every mon</code> to repeat.</p>
     </form>
 
@@ -454,7 +455,7 @@
   <form id="qaDialogForm" autocomplete="off">
     <h3 id="qaDialogTitle">Add a task</h3>
     <div class="qa-row">
-      <input id="qaDialogInput" aria-label="New task" placeholder="e.g. Lab report fri p1 d4 #ECE140">
+      <input id="qaDialogInput" aria-label="New task" placeholder="e.g. Lab report fri !high d3 #ECE140">
       <button class="primary small" type="submit">Add</button>
     </div>
     <div class="qa-preview" id="qaDialogPreview" aria-live="polite"></div>
@@ -465,21 +466,21 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.11.08d"></script>
-<script src="localtimer.js?v=2026.11.08d"></script>
-<script src="notify.js?v=2026.11.08d"></script>
-<script src="score.js?v=2026.11.08d"></script>
-<script src="analytics.js?v=2026.11.08d"></script>
-<script src="tasks.js?v=2026.11.08d"></script>
-<script src="calendar.js?v=2026.11.08d"></script>
-<script src="journal.js?v=2026.11.08d"></script>
-<script src="habits.js?v=2026.11.08d"></script>
-<script src="sleep.js?v=2026.11.08d"></script>
-<script src="sync.js?v=2026.11.08d"></script>
-<script src="livesync.js?v=2026.11.08d"></script>
-<script src="push.js?v=2026.11.08d"></script>
-<script src="theme.js?v=2026.11.08d"></script>
-<script src="shortcuts.js?v=2026.11.08d"></script>
-<script src="main.js?v=2026.11.08d"></script>
+<script src="app.js?v=2026.11.10d"></script>
+<script src="localtimer.js?v=2026.11.10d"></script>
+<script src="notify.js?v=2026.11.10d"></script>
+<script src="score.js?v=2026.11.10d"></script>
+<script src="analytics.js?v=2026.11.10d"></script>
+<script src="tasks.js?v=2026.11.10d"></script>
+<script src="calendar.js?v=2026.11.10d"></script>
+<script src="journal.js?v=2026.11.10d"></script>
+<script src="habits.js?v=2026.11.10d"></script>
+<script src="sleep.js?v=2026.11.10d"></script>
+<script src="sync.js?v=2026.11.10d"></script>
+<script src="livesync.js?v=2026.11.10d"></script>
+<script src="push.js?v=2026.11.10d"></script>
+<script src="theme.js?v=2026.11.10d"></script>
+<script src="shortcuts.js?v=2026.11.10d"></script>
+<script src="main.js?v=2026.11.10d"></script>
 </body>
 </html>

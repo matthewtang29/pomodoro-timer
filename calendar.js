@@ -183,7 +183,7 @@ function renderCalDay() {
   if (k >= today) {
     const form = el('form', 'day-add');
     const input = el('input');
-    input.placeholder = `Add a task for ${fmtDue(k)}… (!high d4 #course work too)`;
+    input.placeholder = `Add a task for ${fmtDue(k)}… (!high d3 #course work too)`;
     input.setAttribute('aria-label', 'New task for this day');
     const btn = el('button', 'small primary', 'Add');
     btn.type = 'submit';

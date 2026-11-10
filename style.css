@@ -169,7 +169,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
   padding: 28px 18px 22px; display: flex; flex-direction: column; gap: 28px;
 }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 12px; }
-.brand-mark { width: 28px; height: 28px; border-radius: 7px; flex: none; display: block; }
+.brand-mark { width: 28px; height: 28px; flex: none; display: block; color: var(--text); }   /* white in dark mode, black in light */
 .brand h1 { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
 
 .side-tabs { display: flex; flex-direction: column; gap: 4px; }
@@ -400,7 +400,7 @@ pre#log {
 .qa-opts select, .qa-opts input { height: 28px; font-size: 12px; }
 .diff-field { display: inline-flex; align-items: center; gap: 8px; }
 .diff-pick { display: inline-flex; gap: 3px; align-items: center; }
-.diff-pick button { width: 26px; height: 26px; padding: 0; font-size: 12px; color: var(--muted); }
+.diff-pick button { height: 26px; padding: 0 10px; font-size: 12px; color: var(--muted); }
 .diff-pick button[aria-checked="true"] { background: var(--hover); color: var(--text); border-color: var(--faint); }
 .diff-pick .diff-name { margin-left: 6px; color: var(--text-2); min-width: 62px; }
 .qa-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }

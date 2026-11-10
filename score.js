@@ -3,7 +3,11 @@
 // Daily score:   focus time vs goal + difficulty-weighted tasks done + session quality.
 // "How the score works" on the Analytics tab explains the same rules to the user.
 
-const DIFF_LABEL = ['', 'Easy', 'Light', 'Moderate', 'Hard', 'Intense'];
+// Three difficulties, stored as 1 (easy), 3 (medium) and 5 (hard) so scores keep their
+// 1–5 scale. Older tasks may have 2 (counts as easy) or 4 (counts as hard).
+const DIFF_LABEL = ['', 'Easy', 'Easy', 'Medium', 'Hard', 'Hard'];
+const DIFF_VALUES = [1, 3, 5];
+function diffLevel(d) { return d <= 2 ? 1 : d >= 4 ? 3 : 2; }   // 1 easy · 2 medium · 3 hard
 const NEUTRAL_DIFFICULTY = 2.5;   // used for focus time not linked to a task
 
 let focusGoalMin = 120;

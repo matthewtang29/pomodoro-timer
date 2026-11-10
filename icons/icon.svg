@@ -1,29 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Pomegranate: a sage-green timer whose hands are two pomegranate seeds -->
-  <rect width="512" height="512" rx="112" fill="#8FB996"/>
-  <!-- stopwatch button + stem -->
-  <rect x="220" y="62" width="72" height="42" rx="14" fill="#FAFAF7"/>
-  <rect x="242" y="96" width="28" height="30" fill="#FAFAF7"/>
-  <!-- face -->
-  <circle cx="256" cy="290" r="170" fill="#FAFAF7"/>
-  <circle cx="256" cy="290" r="146" fill="none" stroke="#DCEADF" stroke-width="10"/>
-  <!-- 12 / 3 / 6 / 9 marks -->
-  <g fill="#8FB996">
-    <rect x="248" y="150" width="16" height="30" rx="8"/>
-    <rect x="248" y="400" width="16" height="30" rx="8"/>
-    <rect x="116" y="282" width="30" height="16" rx="8"/>
-    <rect x="366" y="282" width="30" height="16" rx="8"/>
-  </g>
-  <!-- seed hands: long one to 12, short one to about 2 o'clock -->
-  <g transform="translate(256 290)">
-    <g transform="rotate(0)">
-      <ellipse cx="0" cy="-70" rx="25" ry="66" fill="#F4A582" stroke="#D9805A" stroke-width="5"/>
-      <ellipse cx="-8" cy="-92" rx="7" ry="17" fill="#FFFFFF" opacity=".6"/>
-    </g>
-    <g transform="rotate(62)">
-      <ellipse cx="0" cy="-52" rx="23" ry="48" fill="#F4A582" stroke="#D9805A" stroke-width="5"/>
-      <ellipse cx="-7" cy="-68" rx="6" ry="13" fill="#FFFFFF" opacity=".6"/>
-    </g>
-    <circle r="18" fill="#3F6B48"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="72 72 370 370">
+  <!-- Pomegranate: a checkbox with a bold check breaking out of the corner -->
+  <style>.k{fill:#111}.b{stroke:#111}@media (prefers-color-scheme:dark){.k{fill:#fff}.b{stroke:#fff}}</style>
+  <defs><mask id="gap"><rect width="512" height="512" fill="#fff"/><path d="M 123 300 C 158 284, 189 300, 211 338 C 265 240, 325 150, 407 86 L 423 102 C 345 182, 275 292, 233 404 C 223 428, 201 430, 190 410 C 171 372, 151 330, 123 300 Z" stroke="#000" stroke-width="18" stroke-linejoin="round"/></mask></defs>
+  <rect class="b" x="91" y="150" width="264" height="264" fill="none" stroke-width="30" mask="url(#gap)"/>
+  <path class="k" d="M 123 300 C 158 284, 189 300, 211 338 C 265 240, 325 150, 407 86 L 423 102 C 345 182, 275 292, 233 404 C 223 428, 201 430, 190 410 C 171 372, 151 330, 123 300 Z"/>
 </svg>

@@ -1,6 +1,6 @@
 // ================================================================= TASKS
 // A small Todoist-style task list: quick add with shortcuts, priorities p1–p4,
-// difficulty 1–5, #projects, due dates, and Today / Upcoming / All / Done views.
+// easy / medium / hard difficulty, #projects, due dates, and Today / Upcoming / All / Done views.
 // Tasks can be linked to the timer so focus time is credited to them.
 // Each task can have a checklist of subtasks (stored on the task as
 // subtasks: [{ id, title, done }], so they sync and back up with it).
@@ -76,8 +76,9 @@ function nextDue(t) {
   return k;
 }
 
-// "Circuits lab report fri p1 d4 #ECE140" ->
-// { title: 'Circuits lab report', due: '2026-10-02', priority: 1, difficulty: 4, project: 'ECE140' }
+// "Circuits lab report fri !high d3 #ECE140" ->
+// { title: 'Circuits lab report', due: '2026-10-02', priority: 1, difficulty: 5, project: 'ECE140' }
+// (d1 easy, d2 medium, d3 hard)
 function parseQuickAdd(text) {
   let t = ` ${text} `;
   const out = {};
@@ -89,7 +90,7 @@ function parseQuickAdd(text) {
   take(/\s!(?:high|hi|h)?(?=\s)/i, () => { out.priority = 1; });
   take(/\s!(?:low|lo|l)(?=\s)/i, () => { out.priority = 4; });
   take(/\s[pP]([1-4])(?=\s)/, (_, n) => { out.priority = +n <= 2 ? 1 : 4; });
-  take(/\s[dD]([1-5])(?=\s)/, (_, n) => { out.difficulty = +n; });
+  take(/\s[dD]([1-3])(?=\s)/, (_, n) => { out.difficulty = DIFF_VALUES[n - 1]; });
   take(/\s#([\w\-.]+)(?=\s)/, (_, p) => { out.project = p; });
   // repeats: "every day", "daily", "weekdays", "every 2 weeks", "monthly"...
   // "every mon" repeats weekly and leaves "mon" behind so it also sets the due date
@@ -155,7 +156,7 @@ function fmtDue(k) {
 function diffDots(n) {
   const wrap = el('span', 'dots');
   wrap.setAttribute('aria-hidden', 'true');
-  for (let i = 1; i <= 5; i++) wrap.append(el('i', i <= n ? 'on' : ''));
+  for (let i = 1; i <= 3; i++) wrap.append(el('i', i <= diffLevel(n) ? 'on' : ''));
   return wrap;
 }
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
@@ -377,13 +378,17 @@ function renderTimerSubs() {
 function isHigh(t) { return (t.priority || 4) <= 2; }
 function priLabel(p) { return p <= 2 ? 'High' : 'Low'; }
 
+// Hardest first, then high priority, then soonest due
 function sortTasks(list) {
   return list.slice().sort((a, b) =>
-    (a.due || '9999') .localeCompare(b.due || '9999') ||
+    diffLevel(b.difficulty) - diffLevel(a.difficulty) ||
     isHigh(b) - isHigh(a) ||
-    b.difficulty - a.difficulty ||
+    (a.due || '9999').localeCompare(b.due || '9999') ||
     a.created - b.created);
 }
+
+const VIEW_LEVEL = { easy: 1, medium: 2, hard: 3 };
+const VIEW_TITLE = { easy: 'Easy tasks', medium: 'Medium tasks', hard: 'Hard tasks', all: 'All tasks', done: 'Done' };
 
 function renderTasks() {
   const box = $('taskList');
@@ -392,33 +397,17 @@ function renderTasks() {
   let open = tasks.items.filter(t => !t.done && (!projFilter || t.project === projFilter));
   const groups = [];
 
-  if (taskView === 'today') {
-    const overdue = sortTasks(open.filter(t => t.due && t.due < today));
-    const due = sortTasks(open.filter(t => t.due === today));
-    if (overdue.length) groups.push({ title: 'Overdue', cls: 'overdue', items: overdue });
-    groups.push({ title: 'Today', sub: keyToDate(today).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
-      items: due, empty: 'Nothing due today. Add a task above, or check Upcoming.', noHead: !overdue.length });
-    const doneToday = tasks.items.filter(t => t.done && dayKey(t.done) === today && (!projFilter || t.project === projFilter))
-      .sort((a, b) => a.done - b.done);
-    if (doneToday.length) groups.push({ title: `Done · ${doneToday.length}`, cls: 'done-head', plain: true, items: doneToday });
-  } else if (taskView === 'upcoming') {
-    const future = sortTasks(open.filter(t => t.due && t.due > today));
-    const byDay = {};
-    future.forEach(t => (byDay[t.due] = byDay[t.due] || []).push(t));
-    Object.keys(byDay).sort().forEach(k => {
-      const d = keyToDate(k);
-      groups.push({ title: fmtDue(k), sub: d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), items: byDay[k] });
-    });
-    const nodate = sortTasks(open.filter(t => !t.due));
-    if (nodate.length) groups.push({ title: 'No date', items: nodate });
-    if (!groups.length) groups.push({ title: 'Upcoming', items: [], empty: 'No upcoming tasks.' });
-  } else if (taskView === 'all') {
+  if (taskView !== 'done') {
+    // Easy / Medium / Hard show one difficulty; All shows every open task. Grouped by project.
+    const lvl = VIEW_LEVEL[taskView];
+    if (lvl) open = open.filter(t => diffLevel(t.difficulty) === lvl);
     const byProj = {};
     sortTasks(open).forEach(t => (byProj[t.project || ''] = byProj[t.project || ''] || []).push(t));
     Object.keys(byProj).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).forEach(p => {
       groups.push({ title: p ? '# ' + p : 'No project', items: byProj[p] });
     });
-    if (!groups.length) groups.push({ title: 'All tasks', items: [], empty: 'No open tasks. Nice.' });
+    if (!groups.length) groups.push({ title: VIEW_TITLE[taskView], items: [],
+      empty: lvl ? `No open ${VIEW_TITLE[taskView].toLowerCase()}.` : 'No open tasks. Nice.' });
   } else {
     const done = tasks.items.filter(t => t.done && (!projFilter || t.project === projFilter))
       .sort((a, b) => b.done - a.done).slice(0, 100);
@@ -443,10 +432,9 @@ function renderTasks() {
   // page header
   const shown = groups.reduce((a, g) => a + (g.plain ? 0 : g.items.length), 0);
   const doneToday = tasks.items.filter(t => t.done && dayKey(t.done) === today).length;
-  $('taskTitle').textContent = { today: 'Today', upcoming: 'Upcoming', all: 'All tasks', done: 'Done' }[taskView];
-  const dateLabel = taskView === 'today' ? keyToDate(today).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' : '';
-  $('taskSub').textContent = dateLabel + (projFilter ? `#${projFilter} · ` : '')
-    + `${shown} task${shown === 1 ? '' : 's'}` + (taskView !== 'done' && taskView !== 'today' ? ` · ${doneToday} done today` : '');
+  $('taskTitle').textContent = VIEW_TITLE[taskView];
+  $('taskSub').textContent = (projFilter ? `#${projFilter} · ` : '')
+    + `${shown} task${shown === 1 ? '' : 's'}` + (taskView !== 'done' ? ` · ${doneToday} done today` : '');
   renderSideNav();
 }
 
@@ -497,13 +485,14 @@ function taskRow(t, opts = {}) {
 
   const body = el('div', 't-body');
   body.append(el('div', 't-title', t.title));
-  // "#ece150 · difficulty 4 · Fri · Every week"
+  // "#ece150 · hard · Fri · Every week"
   const meta = el('div', 't-meta');
   if (t.project) meta.append(el('span', 'proj', '#' + t.project));
-  const diff = el('span', 'diff', `difficulty ${t.difficulty}`);
-  diff.title = `Difficulty ${t.difficulty} of 5 · ${DIFF_LABEL[t.difficulty]}`;
+  const dName = DIFF_LABEL[t.difficulty] || 'Medium';
+  const diff = el('span', 'diff', dName.toLowerCase());
+  diff.title = `Difficulty: ${dName}`;
   meta.append(diff);
-  if (t.due && !opts.hideDue && !(taskView === 'today' && t.due === today && !$('tasksView').hidden)) {
+  if (t.due && !opts.hideDue) {
     const cls = !t.done && t.due < today ? ' overdue' : t.due === today ? ' today' : '';
     meta.append(el('span', 'due' + cls, fmtDue(t.due)));
   }
@@ -617,39 +606,37 @@ function repeatSelect(value) {
   return s;
 }
 
-// Five 1–5 buttons + a label ("Hard")
+// Easy / Medium / Hard buttons
 function buildDiffPicker(container, get, set) {
   container.textContent = '';
-  const name = el('span', 'diff-name');
   const paint = () => {
-    container.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(Number(b.dataset.v) === get())));
-    name.textContent = DIFF_LABEL[get()];
+    container.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(diffLevel(Number(b.dataset.v)) === diffLevel(get()))));
   };
-  for (let i = 1; i <= 5; i++) {
-    const b = el('button', null, String(i));
+  DIFF_VALUES.forEach(v => {
+    const b = el('button', null, DIFF_LABEL[v]);
     b.type = 'button';
-    b.dataset.v = i;
+    b.dataset.v = v;
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-label', `${i} – ${DIFF_LABEL[i]}`);
-    b.addEventListener('click', () => { set(i); paint(); });
+    b.addEventListener('click', () => { set(v); paint(); });
     container.append(b);
-  }
-  container.append(name);
+  });
   paint();
   return paint;
 }
 
 // ---------------------------------------------------------------- quick add form
 let qaParsed = {};
-// The picker shows the difficulty that will be saved; clicking it removes a typed d1–d5 shortcut
+// The picker shows the difficulty that will be saved; clicking it removes a typed d1–d3 shortcut
 const qaPaintDiff = buildDiffPicker($('qaDiff'), () => qaParsed.difficulty || qaState.difficulty, v => {
   qaState.difficulty = v;
   const inp = $('qaInput');
-  inp.value = (' ' + inp.value + ' ').replace(/\s[dD][1-5](?=\s)/, ' ').replace(/\s+/g, ' ').trimStart();
+  inp.value = (' ' + inp.value + ' ').replace(/\s[dD][1-3](?=\s)/, ' ').replace(/\s+/g, ' ').trimStart();
 });
 
 function qaDefaults() {
-  qaState = { due: taskView === 'today' ? todayKey() : '', priority: 4, difficulty: 3, project: projFilter || '', repeat: '' };
+  // on the Easy / Medium / Hard tab, new tasks start at that difficulty
+  const lvl = VIEW_LEVEL[taskView];
+  qaState = { due: '', priority: 4, difficulty: lvl ? DIFF_VALUES[lvl - 1] : 3, project: projFilter || '', repeat: '' };
   syncQaControls(qaState);
 }
 // The add form follows the project you're looking at (clicked in the sidebar or picked in the filter)
@@ -713,7 +700,11 @@ $('addForm').addEventListener('submit', e => {
   renderQaPreview();
   qaDefaults();
   $('qaInput').focus();
-  if (t.due && t.due > todayKey() && taskView === 'today') toast(`Added to ${fmtDue(t.due)}`, 'View', () => setTaskView('upcoming'));
+  const lvl = VIEW_LEVEL[taskView];
+  if (lvl && diffLevel(t.difficulty) !== lvl) {
+    const v = Object.keys(VIEW_LEVEL).find(k => VIEW_LEVEL[k] === diffLevel(t.difficulty));
+    toast(`Added to ${VIEW_TITLE[v]}`, 'View', () => setTaskView(v));
+  }
 });
 $('qaCancel').addEventListener('click', () => {
   $('qaInput').value = '';
