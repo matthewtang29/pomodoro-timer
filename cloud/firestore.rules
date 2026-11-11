@@ -1,0 +1,18 @@
+rules_version = '2';
+
+// Pomegranate database rules.
+// Each signed-in person can read and write only their own folder, users/{their uid}/...,
+// and only the folders the app uses. Everything else is closed. The cloud functions use
+// the admin SDK, which isn't affected by these rules.
+//
+// Deploy from the cloud folder:  firebase deploy --only firestore:rules
+// (or paste this into Firebase console -> Firestore Database -> Rules -> Publish)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{kind}/{docId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && kind in ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push'];
+    }
+  }
+}

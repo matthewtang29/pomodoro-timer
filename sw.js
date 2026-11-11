@@ -2,12 +2,12 @@
 // Files come from the saved copy right away; each one is re-checked with GitHub in
 // the background, so an update you push is used from the next launch (and an open
 // window offers to reload into it straight away).
-const CACHE = 'pomegranate-v32';
+const CACHE = 'pomegranate-v33';
 const ASSETS = [
   './', 'index.html', 'style.css',
   'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'habits.js', 'sleep.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
-  'fonts/inter.woff2', 'fonts/figtree.woff2', 'fonts/nunito.woff2',
+  'fonts/inter.woff2', 'fonts/figtree.woff2',
 ];
 
 self.addEventListener('install', e => {
@@ -25,8 +25,12 @@ self.addEventListener('activate', e => {
 // changed, the open window is told so it can offer "Reload".
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  const nav = req.mode === 'navigate';
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  // the app page itself, opened as ./, ./index.html, ./?do=add, ./#tasks… (other pages such as
+  // privacy.html are their own files)
+  const scopePath = new URL(self.registration.scope).pathname;
+  const nav = req.mode === 'navigate' && (url.pathname === scopePath || url.pathname === scopePath + 'index.html');
   const key = nav ? new URL('index.html', self.registration.scope).href : req;   // every launch URL (?do=add…) is the same page
 
   const work = (async () => {
@@ -51,6 +55,7 @@ self.addEventListener('fetch', e => {
     try { return await fresh; }
     catch (err) {   // offline and never saved
       return (await caches.match(req, { ignoreSearch: true })) || (nav ? caches.match('index.html') : Response.error());
+      // (a page that was never opened online, like privacy.html, just shows the browser's offline page)
     }
   }));
   e.waitUntil(work.then(w => w.fresh).catch(() => {}));

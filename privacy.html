@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Pomegranate</title>
+<meta name="description" content="What Pomegranate stores, where it goes, and how to export or delete it. No ads, no analytics, no tracking.">
+<link rel="canonical" href="https://matthewtang29.github.io/pomodoro-timer/privacy.html">
+<meta property="og:title" content="Privacy policy · Pomegranate">
+<meta property="og:image" content="https://matthewtang29.github.io/pomodoro-timer/og-image.png">
+<link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
+<style>
+  :root { --bg: #fafaf7; --text: #1d1f1d; --muted: #5f635e; --line: #e2e3dd; --link: #2f6b3c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151715; --text: #ecece8; --muted: #a9ada6; --line: #2c2f2c; --link: #9cc7a3; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 32px; line-height: 1.2; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; }
+  .muted { color: var(--muted); }
+  a { color: var(--link); }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .back { display: inline-block; margin-bottom: 24px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="./">← Back to Pomegranate</a>
+  <h1>Privacy policy</h1>
+  <p class="muted">Last updated November 10, 2026</p>
+
+  <p>Pomegranate is a free study app made by Matthew Tang, an individual developer. This page explains what it stores, where that goes, and how you can get it back or delete it. The short version: <b>no ads, no analytics, no tracking, and nothing is sold.</b> If you never sign in, nothing leaves your device.</p>
+
+  <h2>If you don't sign in</h2>
+  <p>Everything you enter (tasks, journal entries, habits, sleep times, focus sessions and settings) is saved only in your browser's storage on that device. It isn't sent to us or anyone else.</p>
+  <p>If you connect a USB Pomodoro timer, the app talks to it directly over USB on your computer. That never goes online.</p>
+
+  <h2>If you sign in with Google to sync</h2>
+  <p>Signing in is optional. It copies your data to a cloud database so your devices stay in sync. We use Google Firebase (Firebase Authentication and Cloud Firestore) for this, and Google handles it on our behalf. When you sign in:</p>
+  <ul>
+    <li><b>From your Google account:</b> your name, email address, profile picture link and a Google user ID. We use them only to sign you in and show which account is connected.</li>
+    <li><b>What gets synced:</b> your tasks, journal entries, habits, sleep log, focus history, daily focus goal and the state of a running timer.</li>
+    <li><b>About each device:</b> a random device ID, a label such as "Windows · Chrome", and when it last synced, so focus time from each device can be added up correctly.</li>
+  </ul>
+  <p>Your data is stored by Google in the United States. Firebase's database rules let only your signed-in account read or write your data. Your data is encrypted in transit and at rest by Google, but it isn't end-to-end encrypted, so don't put anything in your journal you wouldn't want stored on a cloud service.</p>
+
+  <h2>Timer alerts</h2>
+  <p>If you turn on alerts while signed in, your browser gives the app a push address for that device (provided by your browser's push service, such as Google, Apple or Mozilla). It's stored with your account. When a session starts, a Google Cloud function schedules alerts like "Focus block done" and sends them through that push service. The alerts contain only timer messages. Turning alerts off, signing out or deleting your cloud data removes the push address.</p>
+
+  <h2>Cookies and storage</h2>
+  <p>Pomegranate doesn't use cookies for tracking or advertising. It uses your browser's storage (local storage, IndexedDB and an offline cache) to save your data, keep you signed in and work offline. These are needed for the app to work, so there's no cookie banner.</p>
+
+  <h2>Who else gets your data</h2>
+  <ul>
+    <li><b>Google (Firebase and Google Cloud):</b> only if you sign in, to store and sync your data and send alerts. See <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase's privacy information</a>.</li>
+    <li><b>Your browser's push service:</b> only if you turn on alerts.</li>
+    <li><b>GitHub Pages:</b> hosts the app's files. Like any web host, it may log basic request details such as IP addresses. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub's privacy statement</a>.</li>
+  </ul>
+  <p>We don't sell or rent your data, and we don't share it with anyone else unless the law requires it.</p>
+
+  <h2>Getting your data and deleting it</h2>
+  <ul>
+    <li><b>Download a copy:</b> Settings → <i>Back up</i> saves everything as a file, and <i>Export CSV</i> saves your study history as a spreadsheet.</li>
+    <li><b>Correct it:</b> edit or delete any task, entry, habit or night in the app.</li>
+    <li><b>Delete the cloud copy and your sign-in:</b> Settings → <i>Delete my cloud data</i>. This removes everything we hold for your account. Google may keep encrypted backups for a short period before they're overwritten.</li>
+    <li><b>Delete what's on a device:</b> clear the site's data in your browser, or uninstall the app and clear its data.</li>
+  </ul>
+  <p>You can also email us to ask what we hold, to correct it, or to delete it. We'll reply within 30 days. Depending on where you live, laws such as Canada's PIPEDA, the EU and UK GDPR or California's CCPA give you these rights, and you can complain to your privacy regulator (in Canada, the <a href="https://www.priv.gc.ca/" target="_blank" rel="noopener">Office of the Privacy Commissioner</a>).</p>
+
+  <h2>How long we keep it</h2>
+  <p>Synced data stays until you delete it or your account. When you delete an item, a small "deleted" marker is kept so the deletion reaches your other devices. Markers are removed when you delete your cloud data.</p>
+
+  <h2>Children</h2>
+  <p>Pomegranate isn't meant for children under 13, and they shouldn't sign in. If you think a child under 13 has given us data, email us and we'll delete it.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, we'll update this page and the date at the top. For a big change, we'll also show a notice in the app.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or requests: <a href="mailto:msht29@gmail.com">msht29@gmail.com</a></p>
+
+  <footer><a href="terms.html">Terms of use</a> · <a href="./">Open Pomegranate</a></footer>
+</main>
+</body>
+</html>

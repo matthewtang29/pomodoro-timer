@@ -1,7 +1,7 @@
 {
   "name": "Pomegranate",
   "short_name": "Pomegranate",
-  "description": "Pomegranate: control an Arduino Pomodoro timer over USB, plan tasks, and track study time.",
+  "description": "A free study app: a Pomodoro focus timer, tasks sorted by difficulty, a habit tracker, a sleep log and a journal.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

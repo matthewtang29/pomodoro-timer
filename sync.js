@@ -408,6 +408,43 @@ const Sync = (() => {
     } catch (e) { setState('error', e.message || String(e)); }
   }
 
+  // Delete everything this account has in the cloud, then the sign-in account itself.
+  // This device keeps its own copy (Back up / Clear in Settings handle that).
+  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push'];
+  async function deleteCloudData() {
+    if (!user) return;
+    if (!confirm('Delete all your Pomegranate data from the cloud and remove your sign-in?\n\n' +
+      'Your other devices will stop syncing. What\'s saved on this device stays here (use Back up first if you want a copy). This can\'t be undone.')) return;
+    const u = user;
+    setState('syncing');
+    try {
+      clearTimeout(flushTimer); flushTimer = null;
+      unsubs.forEach(f => f()); unsubs = [];   // stop listening first, so the deletions don't touch this device
+      if (typeof Push !== 'undefined') await Push.forget();
+      for (const kind of CLOUD_KINDS) {
+        const snap = await db.collection(`users/${u.uid}/${kind}`).get();
+        const refs = snap.docs.map(d => d.ref);
+        for (let i = 0; i < refs.length; i += 400) {
+          const b = db.batch();
+          refs.slice(i, i + 400).forEach(r => b.delete(r));
+          await b.commit();
+        }
+      }
+      write(LS.enabled, false);
+      try { await u.delete(); }
+      catch (e) {
+        // Google asks you to sign in again before an account can be removed
+        if (e.code !== 'auth/requires-recent-login') throw e;
+        await u.reauthenticateWithPopup(new fb.auth.GoogleAuthProvider());
+        await u.delete();
+      }
+      toast('Your cloud data and sign-in were deleted');
+    } catch (e) {
+      setState('error', 'Delete failed: ' + (e.message || e.code || e));
+      if (user) onSignedIn(user);   // still signed in: resume syncing
+    }
+  }
+
   // ---------------------------------------------------------------- status + menu
   function setState(s, msg) { state = s; lastError = msg || ''; renderSyncPanel(); }
 
@@ -423,6 +460,11 @@ const Sync = (() => {
       b.type = 'button';
       b.addEventListener('click', signIn);
       box.append(b);
+      const legal = el('p', 'sync-note', 'By signing in you agree to the ');
+      const terms = el('a', null, 'Terms'); terms.href = 'terms.html'; terms.target = '_blank'; terms.rel = 'noopener';
+      const priv = el('a', null, 'Privacy policy'); priv.href = 'privacy.html'; priv.target = '_blank'; priv.rel = 'noopener';
+      legal.append(terms, ' and ', priv, '. Your data is stored with Google Firebase.');
+      box.append(legal);
       if (state === 'error' && lastError) box.append(el('p', 'sync-note sync-err', lastError));
       return;
     }
@@ -442,6 +484,10 @@ const Sync = (() => {
     const out = el('button', 'small', 'Sign out'); out.type = 'button'; out.addEventListener('click', signOut);
     row.append(now_, out);
     box.append(row);
+    const del = el('button', 'small danger sync-delete', 'Delete my cloud data');
+    del.type = 'button';
+    del.addEventListener('click', deleteCloudData);
+    box.append(del);
   }
   function queueAll() {
     ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => queueLocalNewer(k));
@@ -458,7 +504,7 @@ const Sync = (() => {
   }
 
   return {
-    start, stamp, stampMeta, mergedDay, allDayKeys, clearDays, signIn, signOut, flush,
+    start, stamp, stampMeta, mergedDay, allDayKeys, clearDays, signIn, signOut, flush, deleteCloudData,
     prefetch: () => loadSdk().catch(() => {}),
     get signedIn() { return !!user; },
     get deviceId() { return deviceId; },

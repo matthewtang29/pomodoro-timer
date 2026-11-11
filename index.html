@@ -4,16 +4,26 @@
 <meta charset="utf-8">
 <!-- App version: the ?v= on the files below changes with every release so browsers load the new files. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Pomegranate</title>
-<meta name="description" content="Pomegranate: control Matthew Tang's Arduino Pomodoro timer over USB, plan tasks, and track study time.">
+<title>Pomegranate · Focus timer, tasks, habits and sleep</title>
+<meta name="description" content="A free study app: a Pomodoro focus timer, a task list sorted by difficulty, a habit tracker, a sleep log and a daily journal. Works offline and syncs across your devices.">
+<link rel="canonical" href="https://matthewtang29.github.io/pomodoro-timer/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pomegranate">
+<meta property="og:title" content="Pomegranate · Focus timer, tasks, habits and sleep">
+<meta property="og:description" content="A free study app: focus timer, tasks, habits, sleep and a journal, synced across your devices.">
+<meta property="og:url" content="https://matthewtang29.github.io/pomodoro-timer/">
+<meta property="og:image" content="https://matthewtang29.github.io/pomodoro-timer/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Pomegranate's focus timer next to its habit tracker">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#1e1e1e">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.10d">
+<link rel="stylesheet" href="style.css?v=2026.11.10e">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -115,6 +125,7 @@
             <button id="clearBtn" type="button" class="small danger">Clear study history</button>
           </div>
           <input type="file" id="restoreFile" accept="application/json,.json" hidden>
+          <p class="sync-note tm-legal"><a href="privacy.html" target="_blank" rel="noopener">Privacy</a> · <a href="terms.html" target="_blank" rel="noopener">Terms</a> · <a href="mailto:msht29@gmail.com">msht29@gmail.com</a></p>
           </div>
         </div>
       </div>
@@ -466,21 +477,21 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=2026.11.10d"></script>
-<script src="localtimer.js?v=2026.11.10d"></script>
-<script src="notify.js?v=2026.11.10d"></script>
-<script src="score.js?v=2026.11.10d"></script>
-<script src="analytics.js?v=2026.11.10d"></script>
-<script src="tasks.js?v=2026.11.10d"></script>
-<script src="calendar.js?v=2026.11.10d"></script>
-<script src="journal.js?v=2026.11.10d"></script>
-<script src="habits.js?v=2026.11.10d"></script>
-<script src="sleep.js?v=2026.11.10d"></script>
-<script src="sync.js?v=2026.11.10d"></script>
-<script src="livesync.js?v=2026.11.10d"></script>
-<script src="push.js?v=2026.11.10d"></script>
-<script src="theme.js?v=2026.11.10d"></script>
-<script src="shortcuts.js?v=2026.11.10d"></script>
-<script src="main.js?v=2026.11.10d"></script>
+<script src="app.js?v=2026.11.10e"></script>
+<script src="localtimer.js?v=2026.11.10e"></script>
+<script src="notify.js?v=2026.11.10e"></script>
+<script src="score.js?v=2026.11.10e"></script>
+<script src="analytics.js?v=2026.11.10e"></script>
+<script src="tasks.js?v=2026.11.10e"></script>
+<script src="calendar.js?v=2026.11.10e"></script>
+<script src="journal.js?v=2026.11.10e"></script>
+<script src="habits.js?v=2026.11.10e"></script>
+<script src="sleep.js?v=2026.11.10e"></script>
+<script src="sync.js?v=2026.11.10e"></script>
+<script src="livesync.js?v=2026.11.10e"></script>
+<script src="push.js?v=2026.11.10e"></script>
+<script src="theme.js?v=2026.11.10e"></script>
+<script src="shortcuts.js?v=2026.11.10e"></script>
+<script src="main.js?v=2026.11.10e"></script>
 </body>
 </html>

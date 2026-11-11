@@ -4,7 +4,6 @@
    The accent (sage by default) can be changed in Settings; theme.js sets it. */
 @font-face { font-family: "Inter"; src: url(fonts/inter.woff2) format("woff2"); font-weight: 300 700; font-display: swap; }
 @font-face { font-family: "Figtree"; src: url(fonts/figtree.woff2) format("woff2"); font-weight: 400 700; font-display: swap; }
-@font-face { font-family: "Nunito"; src: url(fonts/nunito.woff2) format("woff2"); font-weight: 200 1000; font-display: swap; }
 
 :root { color-scheme: light dark; }
 :root[data-theme="light"] { color-scheme: light; }
@@ -775,6 +774,9 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 .sync-err { color: var(--down); }
 .sync-who { margin-top: 4px; overflow-wrap: anywhere; }
 .sync-row { display: flex; gap: 8px; margin-top: 8px; }
+.sync-delete { margin-top: 10px; }
+.tm-legal { margin-top: 14px; }
+.tm-legal a { color: var(--muted); }
 .sync-signin { margin-top: 4px; }
 #pushTest { margin: 2px 0 6px; }
 
