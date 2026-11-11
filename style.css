@@ -775,6 +775,11 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 .sync-who { margin-top: 4px; overflow-wrap: anywhere; }
 .sync-row { display: flex; gap: 8px; margin-top: 8px; }
 .sync-delete { margin-top: 10px; }
+/* shown in a second window when Pomegranate is already open */
+.dup-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+.dup-card { max-width: 420px; text-align: center; }
+.dup-card h2 { margin: 0 0 6px; font-size: 20px; }
+.dup-card .primary { margin-top: 12px; }
 .tm-legal { margin-top: 14px; }
 .tm-legal a { color: var(--muted); }
 .sync-signin { margin-top: 4px; }
