@@ -31,7 +31,7 @@ const LocalTimer = (() => {
 
   try { muted = localStorage.getItem('pomodoro-local-muted') === '1'; } catch (e) {}
 
-  const active = () => !port;   // only drives the app when no physical timer is connected
+  const active = () => !boardRunsTimer();   // drives the app unless a board runs the timer (app.js: BOARD_RUNS_TIMER)
   const inSession = () => IN_SESSION.includes(s.st);
   const myId = () => (typeof Sync !== 'undefined' ? Sync.deviceId : '');
   // a session started on another device: shown and controllable here, but not recorded here
@@ -180,7 +180,7 @@ const LocalTimer = (() => {
   // A shared session arrived from another device (or an update to ours). The newest change wins.
   function adopt(shared) {
     const x = shared && shared.s;
-    if (!x || port) return;
+    if (!x || boardRunsTimer()) return;
     const when = x.changed || shared.updated || 0;
     if (when <= (s.changed || 0)) return;
     const wasIn = inSession();

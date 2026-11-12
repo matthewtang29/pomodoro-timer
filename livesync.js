@@ -37,7 +37,7 @@ const LiveSync = (() => {
       if (!snap.exists || snap.metadata.hasPendingWrites) return;   // nothing yet, or our own write
       const data = snap.data();
       if (!data || !data.s || Date.now() - (data.updated || 0) > STALE_MS) return;
-      if (port) return;   // a physical timer is plugged in here: it's in charge on this device
+      if (boardRunsTimer()) return;   // a board running the timer is plugged in here: it's in charge on this device
       LocalTimer.adopt(data);
     }, () => {}));
 
@@ -45,7 +45,7 @@ const LiveSync = (() => {
       if (!snap.exists || snap.metadata.hasPendingWrites) return;
       const r = snap.data();
       // only the computer the physical timer is plugged into acts on these
-      if (!port || !r || !r.id || handled.has(r.id) || r.by === Sync.deviceId) return;
+      if (!boardRunsTimer() || !r || !r.id || handled.has(r.id) || r.by === Sync.deviceId) return;
       handled.add(r.id);
       if (Math.abs(Date.now() - (r.at || 0)) > 20000) return;   // old request
       send(r.cmd);

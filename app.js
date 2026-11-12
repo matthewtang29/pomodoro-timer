@@ -2,8 +2,19 @@ const $ = (id) => document.getElementById(id);
 const BAUD = 115200;
 const RING_C = 2 * Math.PI * 108;
 
+// Does the connected board run the Pomodoro timer?
+//   false (now): the board is a display only (tasks, Claude status, usage). The timer always
+//                runs in the app, exactly the same whether a board is connected or not; no timer
+//                command (START, AUTO, PAUSE, RESUME, EXIT, YES, NO, MUTE, UNMUTE, STATUS) is ever
+//                sent to it, and STATE / timer EVENT lines from it are ignored.
+//   true:        the old physical-timer mode (the board runs the timer, the app mirrors its STATE).
+//                All of that code is kept below, behind boardRunsTimer(), for the robot firmware.
+const BOARD_RUNS_TIMER = false;
+
 let port = null;
 let reader = null;
+// true only when a board is connected AND it runs the timer (never, while the flag is false)
+const boardRunsTimer = () => BOARD_RUNS_TIMER && !!port;
 let keepReading = false;
 let readLoopDone = null;
 let sendChain = Promise.resolve();
@@ -68,7 +79,7 @@ Object.values(inputs).forEach(el => el.addEventListener('change', saveSettings))
 // ---------------------------------------------------------------- serial
 // knownPort: a port this site was allowed to use before (the installed app reconnects to it on launch)
 async function connect(knownPort) {
-  if (LocalTimer.busy()) { toast('Finish or exit the built-in timer session first'); return; }
+  if (BOARD_RUNS_TIMER && LocalTimer.busy()) { toast('Finish or exit the built-in timer session first'); return; }
   try {
     port = knownPort || await navigator.serial.requestPort();
     await port.open({ baudRate: BAUD });
@@ -77,12 +88,18 @@ async function connect(knownPort) {
     if (e.name !== 'NotFoundError') toast(portError(e));   // NotFoundError = user closed the picker
     return;
   }
+  keepReading = true;
+  BoardSync.attach(writeLine);   // waits for the board's EVENT SYNC before sending anything
+  ClaudeStatus.attach(writeLine);
+  readLoopDone = readLoop();
+  if (!BOARD_RUNS_TIMER) {   // display board: the app's timer carries on untouched
+    log('— board connected');
+    render();
+    return;
+  }
   ensureAudio();
   status = null;
   log('— connected, waiting for the timer…');
-  keepReading = true;
-  BoardSync.attach(writeLine);   // waits for the board's EVENT SYNC before sending anything
-  readLoopDone = readLoop();
   render();
 
   // Boards that don't restart on connect won't send READY, so ask for the state.
@@ -97,13 +114,20 @@ function portError(e) {
 
 async function disconnect() {
   BoardSync.detach();   // stop PING / relabel timers; the next connection gets a full set
+  ClaudeStatus.detach();   // stop listening to the Claude status doc
   keepReading = false;
   if (reader) { try { await reader.cancel(); } catch (e) {} }
   if (readLoopDone) { try { await readLoopDone; } catch (e) {} }
   if (port) { try { await port.close(); } catch (e) {} }
+  const wasTimer = boardRunsTimer();
+  port = null;
+  if (!wasTimer) {   // display board: the app's timer was never involved
+    log('— board disconnected');
+    render();
+    return;
+  }
   trackDisconnect();
   if (typeof LiveSync !== 'undefined') LiveSync.physicalGone();
-  port = null;
   status = null;
   log('— disconnected');
   render();
@@ -124,7 +148,7 @@ async function readLoop() {
         while ((i = buffer.indexOf('\n')) >= 0) {
           const line = buffer.slice(0, i).trim();
           buffer = buffer.slice(i + 1);
-          if (line) handleLine(line);
+          if (line) handleBoardLine(line);
         }
       }
     } catch (e) {
@@ -136,8 +160,8 @@ async function readLoop() {
   }
 }
 
-// One serialized write queue for everything sent to the board (timer commands and
-// desk-robot task lines alike), with a short gap after each line. Lines from two senders
+// One serialized write queue for everything sent to the board (desk-robot lines, and timer
+// commands when the board runs the timer), with a short gap after each line. Lines from two senders
 // interleaved too tightly make the board answer ERR UNKNOWN.
 const LINE_GAP_MS = 50;
 function enqueueLine(line, quiet) {
@@ -155,8 +179,9 @@ function enqueueLine(line, quiet) {
   return sendChain;
 }
 
+// Timer commands. They go to the app's built-in timer, and never to a display-only board.
 function send(cmd) {
-  if (!port) {   // no physical timer: the built-in timer handles it
+  if (!boardRunsTimer()) {   // the built-in timer handles it
     log('> ' + cmd + '  (built-in)');
     LocalTimer.command(cmd);
     return Promise.resolve();
@@ -173,11 +198,31 @@ function writeLine(line) {
 
 if ('serial' in navigator) {
   navigator.serial.addEventListener('disconnect', (e) => {
-    if (e.target === port) { toast('Timer unplugged'); disconnect(); }
+    if (e.target === port) { toast(BOARD_RUNS_TIMER ? 'Timer unplugged' : 'Board unplugged'); disconnect(); }
   });
 }
 
+// ---------------------------------------------------------------- messages from the board
+// Lines read from the serial port. A display-only board must never drive the timer, so its
+// STATE and timer EVENT lines are logged and dropped; the desk-robot lines (EVENT SYNC,
+// EVENT ALERT_ACK, ERR, #) go on to handleLine as before.
+const BOARD_EVENTS = ['EVENT SYNC', 'EVENT ALERT_ACK'];
+function handleBoardLine(line) {
+  if (!BOARD_RUNS_TIMER && (line.startsWith('STATE ') || (line.startsWith('EVENT ') && !BOARD_EVENTS.includes(line)))) {
+    log('< ' + line + '  (ignored: the timer runs in the app)');
+    return;
+  }
+  // a display board's ERR is about a board line (TASK, CLAUDE, USAGE…), not the timer
+  if (!BOARD_RUNS_TIMER && line.startsWith('ERR ')) {
+    log('< ' + line);
+    toast(`The board rejected a line (${line.slice(4)})`);
+    return;
+  }
+  handleLine(line);
+}
+
 // ---------------------------------------------------------------- messages from the timer
+// From the built-in timer (LocalTimer), or from the board when it runs the timer.
 // at: optional time the line refers to (used by the built-in timer)
 function handleLine(line, at) {
   if (line.startsWith('STATE ')) {
@@ -189,7 +234,7 @@ function handleLine(line, at) {
     });
     trackState(status ? status.state : null, s, at);
     status = s;
-    if (port && typeof LiveSync !== 'undefined') LiveSync.physical(s);   // show it on your other devices
+    if (boardRunsTimer() && typeof LiveSync !== 'undefined') LiveSync.physical(s);   // show it on your other devices
     render();
     return;
   }
@@ -197,7 +242,7 @@ function handleLine(line, at) {
   if (line.startsWith('#')) return;   // board debug line
   // desk-robot lines: handled here so they never reach the timer's event handling
   // (which would record them as session events and sync that to the cloud every 5 s)
-  if (line === 'EVENT SYNC') { if (port) BoardSync.onSyncRequest(); return; }
+  if (line === 'EVENT SYNC') { if (port) { BoardSync.onSyncRequest(); ClaudeStatus.onBoardSync(); } return; }
   if (line === 'EVENT ALERT_ACK') return;   // logged above; nothing else to do yet
   if (line.startsWith('EVENT ')) onEvent(line.slice(6));
   else if (line.startsWith('ERR ')) toast(errorText(line.slice(4)));
@@ -241,22 +286,33 @@ const PHASES = {
 const IDLE = ['MENU', 'SUMMARY', 'ENDED', 'EXITED'];
 
 function render() {
-  const connected = !!port;
+  const connected = boardRunsTimer();   // a board that runs the timer (never while BOARD_RUNS_TIMER is false)
   const ready = !!status;             // the physical timer or the built-in one has reported in
   const local = !connected;
   const st = ready ? status.state : null;
   const s = settings();
+  const shared = !connected && ready && status.src === 'REMOTE' && !IDLE.includes(st);   // started on another device
 
   // header
-  $('connectBtn').textContent = connected ? 'Disconnect' : 'Connect timer';
-  $('connectBtn').title = connected ? 'Disconnect the timer' : 'Connect your Pomodoro timer over USB';
   const pill = $('pill');
-  const shared = !connected && ready && status.src === 'REMOTE' && !IDLE.includes(st);
-  pill.className = 'pill' + (connected ? (ready ? ' on' : ' wait') : shared ? ' shared' : ' local');
-  pill.textContent = connected ? (ready ? 'Timer connected' : 'Waiting for timer…') : shared ? 'Synced session' : 'Built-in timer';
-  pill.title = connected ? '' : shared ? 'This session was started on another of your devices. You can pause or exit it here too.'
-    : 'No timer connected: sessions run in the app. Connect to use your Pomodoro timer.';
-  $('devSub').textContent = connected ? (ready ? 'Connected over USB' : 'Connecting…') : 'Device not connected';
+  if (!BOARD_RUNS_TIMER) {
+    // the sidebar shows the board link only; it has nothing to do with the timer
+    const linked = !!port;
+    $('connectBtn').textContent = linked ? 'Disconnect' : 'Connect board';
+    $('connectBtn').title = linked ? 'Disconnect the board' : 'Connect your desk board over USB';
+    pill.className = 'pill' + (linked ? ' on' : ' local');
+    pill.textContent = linked ? 'Connected' : 'Board not connected';
+    pill.title = linked ? 'The board shows your tasks and Claude Code status.' : '';
+    $('devSub').textContent = linked ? 'Connected over USB' : 'Not connected';
+  } else {
+    $('connectBtn').textContent = connected ? 'Disconnect' : 'Connect timer';
+    $('connectBtn').title = connected ? 'Disconnect the timer' : 'Connect your Pomodoro timer over USB';
+    pill.className = 'pill' + (connected ? (ready ? ' on' : ' wait') : shared ? ' shared' : ' local');
+    pill.textContent = connected ? (ready ? 'Timer connected' : 'Waiting for timer…') : shared ? 'Synced session' : 'Built-in timer';
+    pill.title = connected ? '' : shared ? 'This session was started on another of your devices. You can pause or exit it here too.'
+      : 'No timer connected: sessions run in the app. Connect to use your Pomodoro timer.';
+    $('devSub').textContent = connected ? (ready ? 'Connected over USB' : 'Connecting…') : 'Device not connected';
+  }
   $('soundRow').hidden = local;
   // page subtitle: date and today's focus time
   if (typeof peekDay === 'function') {
@@ -333,6 +389,8 @@ function render() {
     sub = last ? 'Last focus block' : `Break next · ${status.break} min`;
   } else if (st === 'REST' || st === 'PAUSED_REST') sub = `Focus next · ${status.focus} min`;
   else sub = status.cycles > 0 ? `Cycle ${status.cycle} of ${status.cycles}` : `Cycle ${status.cycle} · auto mode`;
+  // the sidebar pill no longer says "Synced session" (it's about the board now), so say it here
+  if (shared && !BOARD_RUNS_TIMER) sub = 'From another device · ' + sub;
   $('sub').textContent = sub;
 
   // stats
@@ -394,7 +452,7 @@ function ensureAudio() {
 function chime(notes) {
   if (!audioCtx) return;
   // built-in timer: follows the Mute button; physical timer: follows the checkbox
-  if (port ? !$('soundChk').checked : (status && status.muted === 1)) return;
+  if (boardRunsTimer() ? !$('soundChk').checked : (status && status.muted === 1)) return;
   const t0 = audioCtx.currentTime;
   notes.forEach((hz, i) => {
     const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();

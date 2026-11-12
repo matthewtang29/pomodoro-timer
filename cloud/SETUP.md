@@ -60,3 +60,20 @@ On every device (laptop, iPhone, iPad):
   ```
 - **iPhone gets nothing:** alerts only work in the Home Screen version of the app, and only after you've allowed notifications from inside it. Check iPhone Settings → Notifications → Pomegranate.
 - **Changing the key pair:** run `npx web-push generate-vapid-keys`, put the public key in both `push.js` and `functions/index.js`, set the new private key with step 4, deploy, and turn alerts off and on again on each device.
+
+## Desk robot: Claude Code status
+A script on the laptop (run by Claude Code hooks and the status line) writes one doc with the Admin SDK:
+`users/{uid}/robot/claude`. The app reads it while the desk robot is connected and you're signed in, and
+shows running jobs, DONE! alerts and plan usage on the OLED (see `claudestatus.js`).
+
+- **Values for the laptop's config.json:** in the app, ⚙ Settings → Sync → **Desk robot: Claude Code status**
+  shows the project id (`pomodoro-timer-8d10f`), the full doc path with your user id, and copy buttons.
+- **Rules:** the owner can read and delete that doc; no client can create or change it. Deploy the rules after
+  any change to `firestore.rules`, from this `cloud` folder:
+  ```
+  firebase deploy --only firestore:rules
+  ```
+  or paste `firestore.rules` into Firebase console → **Firestore Database** → **Rules** → **Publish**.
+- **Testing by hand:** Firebase console → Firestore → `users/<uid>/robot/claude` → set a `jobs` map with one
+  entry (`state: "running"`, `name`, `updatedAt` = now in epoch ms, `startedAt` = a minute ago). The board shows it
+  within a second or two. Then change `state` to `"done"` and add `finishedAt` = now: DONE! and a chime.

@@ -18,6 +18,8 @@
 //                users/{uid}/sleep/{YYYY-MM-DD}
 //                users/{uid}/days/{YYYY-MM-DD}__{deviceId}
 //                users/{uid}/meta/settings
+//                users/{uid}/robot/claude   (Claude Code status for the desk robot: written by the
+//                                            laptop with the Admin SDK, read-only here; see claudestatus.js)
 
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDLqMC3ITgcerijdciFkyOA1rTkRAtnu8g',
@@ -204,6 +206,7 @@ const Sync = (() => {
     db.collection(`users/${u.uid}/devices`).doc(deviceId).set({ name: deviceName, lastSeen: now() }).catch(() => {});
     if (typeof LiveSync !== 'undefined') LiveSync.onAuth(u, db);   // shared timer sessions
     if (typeof Push !== 'undefined') Push.onAuth(u, db);           // alerts while the app is closed
+    if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(u, db);   // desk robot: Claude Code status
   }
   function onSignedOut() {
     unsubs.forEach(f => f());
@@ -211,6 +214,7 @@ const Sync = (() => {
     user = null;
     if (typeof LiveSync !== 'undefined') LiveSync.onAuth(null, null);
     if (typeof Push !== 'undefined') Push.onAuth(null, null);
+    if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(null, null);
     setState('off');
   }
 
@@ -411,7 +415,8 @@ const Sync = (() => {
 
   // Delete everything this account has in the cloud, then the sign-in account itself.
   // This device keeps its own copy (Back up / Clear in Settings handle that).
-  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push'];
+  // ('robot' holds the laptop-written Claude Code status; the rules allow the owner to delete it, for this)
+  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot'];
   async function deleteCloudData() {
     if (!user) return;
     if (!confirm('Delete all your Pomegranate data from the cloud and remove your sign-in?\n\n' +
@@ -422,6 +427,7 @@ const Sync = (() => {
       clearTimeout(flushTimer); flushTimer = null;
       unsubs.forEach(f => f()); unsubs = [];   // stop listening first, so the deletions don't touch this device
       if (typeof Push !== 'undefined') await Push.forget();
+      if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(null, null);   // stop reading the robot doc
       for (const kind of CLOUD_KINDS) {
         const snap = await db.collection(`users/${u.uid}/${kind}`).get();
         const refs = snap.docs.map(d => d.ref);
@@ -485,10 +491,39 @@ const Sync = (() => {
     const out = el('button', 'small', 'Sign out'); out.type = 'button'; out.addEventListener('click', signOut);
     row.append(now_, out);
     box.append(row);
+    box.append(robotIds(user.uid));
     const del = el('button', 'small danger sync-delete', 'Delete my cloud data');
     del.type = 'button';
     del.addEventListener('click', deleteCloudData);
     box.append(del);
+  }
+  // The values the laptop's Claude Code status script needs in its config.json
+  let idsOpen = false;   // the panel redraws on every sync; keep this section open if it was
+  function robotIds(uid) {
+    const wrap = el('details', 'sync-ids');
+    wrap.open = idsOpen;
+    wrap.addEventListener('toggle', () => { idsOpen = wrap.open; });
+    wrap.append(el('summary', null, 'Desk robot: Claude Code status'));
+    wrap.append(el('p', 'sync-note', 'Put these in the laptop script\'s config.json. The app only reads this doc.'));
+    [['Project id', FIREBASE_CONFIG.projectId], ['Doc path', `users/${uid}/robot/claude`], ['Your user id', uid]].forEach(([label, value]) => {
+      const row = el('div', 'sync-id');
+      const code = el('code', null, value);
+      const copy = el('button', 'small', 'Copy');
+      copy.type = 'button';
+      copy.setAttribute('aria-label', `Copy ${label.toLowerCase()}`);
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(value); copy.textContent = 'Copied'; }
+        catch (e) {   // clipboard blocked: select the text so Ctrl+C works
+          const r = document.createRange(); r.selectNodeContents(code);
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+          copy.textContent = 'Press Ctrl+C';
+        }
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+      });
+      row.append(el('span', null, label), code, copy);
+      wrap.append(row);
+    });
+    return wrap;
   }
   function queueAll() {
     ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => queueLocalNewer(k));

@@ -14,5 +14,11 @@ service cloud.firestore {
         && request.auth.uid == uid
         && kind in ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push'];
     }
+    // Claude Code status for the desk robot (users/{uid}/robot/claude). Written only by the
+    // laptop script with the Admin SDK, which skips these rules. The owner can read it, and
+    // delete it (account cleanup in Settings); no client can create or change it.
+    match /users/{uid}/robot/{docId} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+    }
   }
 }

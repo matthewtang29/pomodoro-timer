@@ -167,7 +167,7 @@ updateTotalHint();
 qaDefaults();
 renderProjectLists();
 render();
-LocalTimer.start();   // drives the app until a physical timer is connected
+LocalTimer.start();   // the timer (always, unless BOARD_RUNS_TIMER in app.js hands it to the board)
 Sync.start();         // reconnects cloud sync if you signed in before
 Notify.start();       // timer-finished alerts (settings in the ⚙ menu)
 Push.start();         // alerts while the app is closed (needs sign-in)

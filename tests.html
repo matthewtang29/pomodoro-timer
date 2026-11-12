@@ -23,11 +23,12 @@
 </head>
 <body>
 <main>
-  <h1>boardsync.js tests</h1>
+  <h1>Desk robot tests</h1>
   <p id="summary">Running…</p>
   <div id="out"></div>
 </main>
 <script src="boardsync.js"></script>
+<script src="claudestatus.js"></script>
 <script>
 (async () => {
   const { dueLabel, cleanTitle, taskLines, syncTasksToBoard, _resetLastSent } = BoardSync;
@@ -122,6 +123,80 @@
   sent.length = 0;
   await syncTasksToBoard(items, writeLine, false, new Date(2026, 10, 12, 0, 1));
   eq('after midnight the labels change -> resends', sent.slice(1, 3), ['TASK Late Overdue essay', 'TASK Late Lab report']);
+
+  // ================================================================ claudestatus.js
+  const C = ClaudeStatus;
+  const T0 = new Date(2026, 10, 11, 15, 0).getTime();   // Wed 11 Nov 2026, 3:00 pm local
+  const MIN = 60e3, H = 3600e3;
+  const run = (name, startedAgo, updatedAgo = 0, now = T0) => ({ sid: name, name, project: 'p', state: 'running', startedAt: now - startedAgo, updatedAt: now - updatedAgo });
+  const done = (job, finishedAgo, now = T0, extra = {}) => ({ ...job, state: 'done', finishedAt: now - finishedAgo, updatedAt: now - finishedAgo, ...extra });
+
+  group('claudestatus: reset labels');
+  eq('5h: 3:10a', C.resetLabel(new Date(2026, 10, 12, 3, 10).getTime(), '5h', T0), '3:10a');
+  eq('5h: 12:05p (noon hour)', C.resetLabel(new Date(2026, 10, 12, 12, 5).getTime(), '5h', T0), '12:05p');
+  eq('5h: 12:05a (midnight hour)', C.resetLabel(new Date(2026, 10, 12, 0, 5).getTime(), '5h', T0), '12:05a');
+  eq('5h: 11:59p', C.resetLabel(new Date(2026, 10, 11, 23, 59).getTime(), '5h', T0), '11:59p');
+  eq('week: Fri7:00p', C.resetLabel(new Date(2026, 10, 13, 19, 0).getTime(), 'week', T0), 'Fri7:00p');
+  eq('week: longest is 9 chars (Wed12:59p)', C.resetLabel(new Date(2026, 10, 18, 12, 59).getTime(), 'week', T0), 'Wed12:59p');
+  eq('already passed -> -', C.resetLabel(T0 - MIN, '5h', T0), '-');
+  eq('exactly now -> -', C.resetLabel(T0, 'week', T0), '-');
+  eq('0 -> -', C.resetLabel(0, '5h', T0), '-');
+  eq('missing -> -', C.resetLabel(undefined, 'week', T0), '-');
+
+  group('claudestatus: USAGE line');
+  eq('week first, integers, both labels', C.usageLine({ fiveHour: 41.6, fiveHourResetsAt: new Date(2026, 10, 11, 18, 10).getTime(),
+    sevenDay: 12.2, sevenDayResetsAt: new Date(2026, 10, 13, 19, 0).getTime(), updatedAt: T0 }, T0), 'USAGE 12 42 Fri7:00p 6:10p');
+  eq('out of range clamped, past resets -> -', C.usageLine({ fiveHour: 130, fiveHourResetsAt: T0 - 1, sevenDay: -5, sevenDayResetsAt: 0 }, T0), 'USAGE 0 100 - -');
+  eq('no usage -> nothing to send', C.usageLine(undefined, T0), null);
+
+  group('claudestatus: slots');
+  let st = C.newState();
+  const a = run('Fix the build', 5 * MIN), b = run('Write tests', 3 * MIN), c = run('Third job', 1 * MIN);
+  eq('initial load: two running jobs, oldest first', C.step(st, { sa: a, sb: b }, T0, 'initial'), ['CLAUDE JOB 0 ? Fix the build', 'CLAUDE JOB 1 ? Write tests']);
+  eq('unrelated snapshot (updatedAt bump) -> nothing', C.step(st, { sa: { ...a, updatedAt: T0 }, sb: b }, T0, 'live'), []);
+  eq('both slots busy: a third job is ignored', C.step(st, { sa: a, sb: b, sc: c }, T0, 'live'), []);
+  eq('renamed job -> resent in the same slot', C.step(st, { sa: a, sb: { ...b, name: 'Write more tests' }, sc: c }, T0, 'live'), ['CLAUDE JOB 1 ? Write more tests']);
+  eq('slot 0 frees (job gone) -> END, and the waiting job takes slot 0',
+    C.step(st, { sb: { ...b, name: 'Write more tests' }, sc: c }, T0, 'live'), ['CLAUDE JOB 0 END', 'CLAUDE JOB 0 ? Third job']);
+  eq('sticky: slot 1 job never moves', st.slots, ['sc', 'sb']);
+  eq('resync (EVENT SYNC): resend both slots, no DONE', C.step(st, { sb: { ...b, name: 'Write more tests' }, sc: c }, T0, 'resync'),
+    ['CLAUDE JOB 0 ? Third job', 'CLAUDE JOB 1 ? Write more tests']);
+  st = C.newState();
+  eq('initial load with one job: END for the empty slot', C.step(st, { sa: a }, T0, 'initial'), ['CLAUDE JOB 0 ? Fix the build', 'CLAUDE JOB 1 END']);
+  eq('nothing running on load -> END both', C.step(C.newState(), {}, T0, 'initial'), ['CLAUDE JOB 0 END', 'CLAUDE JOB 1 END']);
+  eq('stale running job (4 h old) is ignored', C.step(C.newState(), { old: run('Old', 5 * H, 4 * H) }, T0, 'initial'), ['CLAUDE JOB 0 END', 'CLAUDE JOB 1 END']);
+  st = C.newState(); C.step(st, { sa: a }, T0, 'initial');
+  eq('slotted job going stale (minute tick) -> END', C.step(st, { sa: a }, T0 + 3 * H, 'live'), ['CLAUDE JOB 0 END']);
+  eq('name: emoji stripped, cut to 20', C.step(C.newState(), { x: run('🚀 Refactor the whole serial layer', MIN) }, T0, 'initial')[0], 'CLAUDE JOB 0 ? Refactor the whole s');
+
+  group('claudestatus: DONE decision');
+  const longJob = run('Long job', 2 * MIN);
+  st = C.newState(); C.step(st, { j: longJob }, T0, 'initial');
+  eq('live, finished now, ran 2 min -> DONE', C.step(st, { j: done(longJob, 0) }, T0, 'live'), ['CLAUDE JOB 0 DONE Long job']);
+  eq('slot is free after DONE', st.slots, [null, null]);
+  const shortJob = run('Quick Q', 10e3);
+  st = C.newState(); C.step(st, { j: shortJob }, T0, 'initial');
+  eq('live but only 10 s -> END (no chime)', C.step(st, { j: done(shortJob, 0) }, T0, 'live'), ['CLAUDE JOB 0 END']);
+  const edge = run('Edge', C.MIN_DONE_MS);
+  st = C.newState(); C.step(st, { j: edge }, T0, 'initial');
+  eq('exactly 20 s -> DONE', C.step(st, { j: done(edge, 0) }, T0, 'live'), ['CLAUDE JOB 0 DONE Edge']);
+  st = C.newState(); C.step(st, { j: longJob }, T0 - 10 * MIN, 'initial');
+  eq('finished 3 min ago -> END (history, not live)', C.step(st, { j: done(longJob, 3 * MIN) }, T0, 'live'), ['CLAUDE JOB 0 END']);
+  eq('initial load of a done job -> never DONE', C.step(C.newState(), { j: done(longJob, 0) }, T0, 'initial'), ['CLAUDE JOB 0 END', 'CLAUDE JOB 1 END']);
+  st = C.newState(); C.step(st, { j: longJob }, T0, 'initial');
+  eq('resync while it just finished -> END, never DONE', C.step(st, { j: done(longJob, 0) }, T0, 'resync'), ['CLAUDE JOB 0 END', 'CLAUDE JOB 1 END']);
+  st = C.newState(); C.step(st, { j: longJob }, T0, 'initial');
+  const noStart = done(longJob, 0); delete noStart.startedAt;
+  eq('done entry without startedAt: uses the start seen while running -> DONE', C.step(st, { j: noStart }, T0, 'live'), ['CLAUDE JOB 0 DONE Long job']);
+  eq('doneDecision: never seen running and no startedAt -> END', C.doneDecision(noStart, T0, 0), 'END');
+  st = C.newState(); C.step(st, { j: longJob }, T0, 'initial');
+  eq('finished between cache and server snapshot (loading) -> END, never DONE', C.step(st, { j: done(longJob, 0) }, T0, 'loading'), ['CLAUDE JOB 0 END']);
+  st = C.newState(); C.step(st, { j: longJob }, T0, 'initial');
+  eq('loading with nothing changed -> nothing resent', C.step(st, { j: longJob }, T0, 'loading'), []);
+  st = C.newState(); C.step(st, { j: longJob, k: b }, T0, 'initial');
+  // k started earlier (3 min ago vs 2), so it took slot 0 and the long job slot 1
+  eq('DONE frees the slot; the other job stays put', [C.step(st, { j: done(longJob, 0), k: b }, T0, 'live'), st.slots],
+    [['CLAUDE JOB 1 DONE Long job'], ['k', null]]);
 
   document.getElementById('summary').textContent = fail ? `${fail} failed, ${pass} passed` : `All ${pass} passed`;
   document.getElementById('summary').className = fail ? 'bad' : 'ok';
