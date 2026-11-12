@@ -73,10 +73,14 @@ const Notify = (() => {
     return null;
   }
 
+  // "Looking at it" means the window is showing AND has focus. A window sitting behind
+  // another one still counts as visible to the browser, so visibility alone isn't enough.
+  function onScreen() { return !document.hidden && document.hasFocus(); }
+
   function event(name) {
     const msg = messageFor(name);
     if (!msg) return;
-    if (!document.hidden) toast(`${msg[0]} · ${msg[1]}`);
+    if (onScreen()) toast(`${msg[0]} · ${msg[1]}`);
     // in the background: the cloud alert covers it when it's set up on this device
     else if (!(typeof Push !== 'undefined' && Push.active)) show(msg[0], msg[1]);
   }

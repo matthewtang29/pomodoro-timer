@@ -2,7 +2,7 @@
 // Files come from the saved copy right away; each one is re-checked with GitHub in
 // the background, so an update you push is used from the next launch (and an open
 // window offers to reload into it straight away).
-const CACHE = 'pomegranate-v35';
+const CACHE = 'pomegranate-v36';
 const ASSETS = [
   './', 'index.html', 'style.css',
   'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'habits.js', 'sleep.js', 'dashboard.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',
@@ -74,7 +74,7 @@ self.addEventListener('push', e => {
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
   e.waitUntil((async () => {
     const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const onScreen = list.some(c => c.visibilityState === 'visible');
+    const onScreen = list.some(c => c.visibilityState === 'visible' && c.focused);   // behind another window counts as away
     const ua = self.navigator.userAgent;
     const apple = /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|Android/.test(ua);
     if (onScreen && !apple && !d.test) return;
