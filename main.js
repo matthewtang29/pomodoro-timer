@@ -1,13 +1,14 @@
 // ================================================================= START-UP
 // Tabs, installable-app setup, and first render. Loaded last.
 
-const VIEWS = { timer: 'timerView', tasks: 'tasksView', calendar: 'calView', journal: 'journalView', habits: 'habitsView', sleep: 'sleepView' };
+const VIEWS = { today: 'todayView', timer: 'timerView', tasks: 'tasksView', calendar: 'calView', journal: 'journalView', habits: 'habitsView', sleep: 'sleepView' };
 
 function showTab(name) {
   if (!VIEWS[name]) name = 'timer';
   for (const [key, id] of Object.entries(VIEWS)) $(id).hidden = key !== name;
   document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   editingId = null;
+  if (name === 'today') renderDashboard();   // dashboard.js
   if (name === 'tasks') { renderProjectLists(); renderTasks(); }
   if (name === 'calendar') renderCalendar();
   if (name === 'journal') renderJournal();

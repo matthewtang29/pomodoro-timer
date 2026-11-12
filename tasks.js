@@ -268,6 +268,7 @@ window.addEventListener('pagehide', saveTasks);
 function refreshTaskViews() {
   if (!$('tasksView').hidden) renderTasks();
   if (!$('calView').hidden && typeof renderCalendar === 'function') renderCalendar();
+  if (!$('todayView').hidden && typeof renderDashboard === 'function') renderDashboard();
   renderTimerTask();
   renderProjectLists();
   if (focusSub) {   // keep typing: put the cursor back in the "add a subtask" box

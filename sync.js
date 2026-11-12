@@ -316,6 +316,7 @@ const Sync = (() => {
 
   function refreshViews() {
     try {
+      if (!$('todayView').hidden) renderDashboard();
       if (!$('tasksView').hidden) renderTasks();
       if (!$('calView').hidden) renderCalendar();
       if (!$('journalView').hidden && !jDirty) renderJournal();
