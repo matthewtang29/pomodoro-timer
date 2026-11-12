@@ -81,8 +81,9 @@ const Notify = (() => {
     const msg = messageFor(name);
     if (!msg) return;
     if (onScreen()) toast(`${msg[0]} · ${msg[1]}`);
-    // in the background: the cloud alert covers it when it's set up on this device
-    else if (!(typeof Push !== 'undefined' && Push.active)) show(msg[0], msg[1]);
+    // in the background: always show one here, even when cloud alerts are on, so a
+    // cloud hiccup can't swallow it (sw.js skips the cloud copy if this one is fresh)
+    else show(msg[0], msg[1]);
   }
 
   // ---------------------------------------------------------------- keep screen awake

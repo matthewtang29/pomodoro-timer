@@ -2,7 +2,7 @@
 // Files come from the saved copy right away; each one is re-checked with GitHub in
 // the background, so an update you push is used from the next launch (and an open
 // window offers to reload into it straight away).
-const CACHE = 'pomegranate-v36';
+const CACHE = 'pomegranate-v37';
 const ASSETS = [
   './', 'index.html', 'style.css',
   'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'habits.js', 'sleep.js', 'dashboard.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',
@@ -78,6 +78,11 @@ self.addEventListener('push', e => {
     const ua = self.navigator.userAgent;
     const apple = /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|Android/.test(ua);
     if (onScreen && !apple && !d.test) return;
+    // the open app already showed this alert itself in the last minute: don't buzz twice
+    if (!d.test && !apple) {
+      const shown = await self.registration.getNotifications({ tag: d.tag || 'pomodoro-timer' });
+      if (shown.some(n => Date.now() - (n.timestamp || 0) < 60000)) return;
+    }
     await self.registration.showNotification(d.title || 'Pomegranate', {
       body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
       tag: d.tag || 'pomodoro-timer', renotify: true, vibrate: [200, 100, 200], data: { url: './' },

@@ -66,9 +66,13 @@ const LocalTimer = (() => {
       `focus=${s.focus} break=${s.brk} done=${s.done} total=${s.total} mode=${s.auto ? 'AUTO' : 'CUSTOM'} ` +
       `muted=${muted ? 1 : 0} src=${remote() ? 'REMOTE' : 'LOCAL'} sstart=${s.sessionStart}`, now);
   }
-  // at: when it happened. Events more than 10 s old (the app was asleep or just opened)
-  // are skipped, so you don't get a burst of chimes for things that already happened.
-  function event(name, at) { if (active() && (!at || Date.now() - at < 10000)) handleLine('EVENT ' + name); }
+  // at: when it happened. Events more than 2 minutes old (the app was asleep or just
+  // opened) are skipped, so you don't get a burst of alerts for things long past.
+  // It can't be much shorter: a browser checks the clock only once a minute in a
+  // window that's been out of view for a while, so a real "timer ended" can arrive
+  // up to a minute late.
+  const STALE_MS = 120000;
+  function event(name, at) { if (active() && (!at || Date.now() - at < STALE_MS)) handleLine('EVENT ' + name); }
   function err(code) { handleLine('ERR ' + code); }
   function go(st, at) { s.st = st; save(); emit(at); }
 
