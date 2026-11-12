@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pomegranate tests</title>
+<!-- Unit tests for boardsync.js (desk-robot task sync). No dependencies: open this page
+     in a browser (from a local server or GitHub Pages) and read the results. -->
+<style>
+  :root { --bg: #fafaf7; --text: #1b1b19; --muted: #67655f; --ok: #3f7a4b; --bad: #b4422e; --line: #e9e7e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151715; --text: #e8e6e1; --muted: #a19e98; --ok: #9cc7a3; --bad: #f2aa8a; --line: #2c302d; } }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  #summary { margin: 0 0 20px; font-weight: 600; }
+  h2 { font-size: 14px; margin: 20px 0 6px; color: var(--muted); }
+  li { list-style: none; padding: 4px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  ul { margin: 0; padding: 0; }
+  .ok::before { content: "✓ "; color: var(--ok); }
+  .bad { color: var(--bad); } .bad::before { content: "✕ "; }
+</style>
+</head>
+<body>
+<main>
+  <h1>boardsync.js tests</h1>
+  <p id="summary">Running…</p>
+  <div id="out"></div>
+</main>
+<script src="boardsync.js"></script>
+<script>
+(async () => {
+  const { dueLabel, cleanTitle, taskLines, syncTasksToBoard, _resetLastSent } = BoardSync;
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0, list = null;
+
+  function group(name) {
+    out.insertAdjacentHTML('beforeend', '<h2></h2><ul></ul>');
+    out.lastElementChild.previousElementSibling.textContent = name;
+    list = out.lastElementChild;
+  }
+  function eq(name, got, want) {
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    ok ? pass++ : fail++;
+    const li = document.createElement('li');
+    li.className = ok ? 'ok' : 'bad';
+    li.textContent = ok ? name : `${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`;
+    list.append(li);
+  }
+
+  // Wednesday 11 Nov 2026, mid-afternoon local time
+  const now = new Date(2026, 10, 11, 15, 0);
+
+  group('dueLabel');
+  eq('yesterday -> Late', dueLabel('2026-11-10', now), 'Late');
+  eq('last month -> Late', dueLabel('2026-10-02', now), 'Late');
+  eq('today -> Today', dueLabel('2026-11-11', now), 'Today');
+  eq('tomorrow -> Tmrw', dueLabel('2026-11-12', now), 'Tmrw');
+  eq('2 days -> weekday (Fri)', dueLabel('2026-11-13', now), 'Fri');
+  eq('6 days -> weekday (Tue)', dueLabel('2026-11-17', now), 'Tue');
+  eq('7 days -> M/D', dueLabel('2026-11-18', now), '11/18');
+  eq('next year -> M/D', dueLabel('2027-01-05', now), '1/5');
+  eq('accepts a Date too', dueLabel(new Date(2026, 10, 12, 9, 30), now), 'Tmrw');
+  eq('label fits the board (<= 5 chars, no spaces)',
+    ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-15', '2026-12-25'].every(d => /^\S{1,5}$/.test(dueLabel(d, now))), true);
+
+  group('dueLabel: midnight rollover');
+  const lastMs = new Date(2026, 10, 11, 23, 59, 59, 999);
+  const firstMs = new Date(2026, 10, 12, 0, 0, 0, 0);
+  eq('23:59:59.999 the day before -> Tmrw', dueLabel('2026-11-12', lastMs), 'Tmrw');
+  eq('00:00:00.000 that day -> Today', dueLabel('2026-11-12', firstMs), 'Today');
+  eq('due yesterday, just after midnight -> Late', dueLabel('2026-11-11', firstMs), 'Late');
+  eq('7 days becomes 6 at midnight (M/D -> weekday)', [dueLabel('2026-11-18', lastMs), dueLabel('2026-11-18', firstMs)], ['11/18', 'Wed']);
+  // the 25-hour day when daylight saving ends (Sun 1 Nov 2026 in North America)
+  eq('across the DST change: 2 days -> weekday', dueLabel('2026-11-02', new Date(2026, 9, 31, 12)), 'Mon');
+  eq('across the DST change: tomorrow -> Tmrw', dueLabel('2026-11-02', new Date(2026, 10, 1, 23, 30)), 'Tmrw');
+
+  group('cleanTitle');
+  eq('emoji stripped', cleanTitle('📚 Read ch 4 🎉'), 'Read ch 4');
+  eq('cut to 15 chars', cleanTitle('abcdefghijklmnopqrstuvwxyz'), 'abcdefghijklmno');
+  eq('exactly 15 kept', cleanTitle('123456789012345'), '123456789012345');
+  eq('only emoji -> -', cleanTitle('🎉🔥'), '-');
+  eq('empty -> -', cleanTitle(''), '-');
+  eq('spaces only -> -', cleanTitle('   '), '-');
+  eq('missing -> -', cleanTitle(undefined), '-');
+  eq('accented letters dropped (not ASCII)', cleanTitle('Café notes'), 'Caf notes');
+  eq('tabs / newlines dropped', cleanTitle('a\tb\nc'), 'abc');
+  eq('no trailing space after the cut', cleanTitle('Lab report for ECE'), 'Lab report for');
+
+  group('taskLines');
+  const items = [
+    { id: 'a', title: 'Undated', due: '', done: null },
+    { id: 'b', title: 'Done already', due: '2026-11-09', done: 1 },
+    { id: 'c', title: 'Problem set 6', due: '2026-11-13', done: null },
+    { id: 'd', title: 'Overdue essay', due: '2026-11-08', done: null },
+    { id: 'e', title: '🧪 Lab report', due: '2026-11-11', done: null },
+    { id: 'f', title: 'Read chapter 4', due: '2026-11-12', done: null },
+    { id: 'g', title: 'Fifth task', due: '2026-12-01', done: null },
+  ];
+  eq('TASKS CLR first, oldest due first, max 4, done and undated skipped', taskLines(items, now), [
+    'TASKS CLR',
+    'TASK Late Overdue essay',
+    'TASK Today Lab report',
+    'TASK Tmrw Read chapter 4',
+    'TASK Fri Problem set 6',
+  ]);
+  eq('no tasks -> just TASKS CLR', taskLines([], now), ['TASKS CLR']);
+
+  group('syncTasksToBoard');
+  _resetLastSent();
+  const sent = [];
+  const writeLine = l => { sent.push(l); return Promise.resolve(); };
+  await syncTasksToBoard(items, writeLine, false, now);
+  eq('first call sends the full set', sent.length, 5);
+  sent.length = 0;
+  await syncTasksToBoard(items, writeLine, false, now);
+  eq('unchanged -> sends nothing', sent.length, 0);
+  await syncTasksToBoard(items.map(t => ({ ...t, focusSec: 999 })), writeLine, false, now);
+  eq('unrelated change (focus time) -> sends nothing', sent.length, 0);
+  await syncTasksToBoard(items, writeLine, true, now);
+  eq('force (EVENT SYNC) -> resends unchanged set', sent.length, 5);
+  sent.length = 0;
+  await syncTasksToBoard(items, writeLine, false, new Date(2026, 10, 12, 0, 1));
+  eq('after midnight the labels change -> resends', sent.slice(1, 3), ['TASK Late Overdue essay', 'TASK Late Lab report']);
+
+  document.getElementById('summary').textContent = fail ? `${fail} failed, ${pass} passed` : `All ${pass} passed`;
+  document.getElementById('summary').className = fail ? 'bad' : 'ok';
+})();
+</script>
+</body>
+</html>

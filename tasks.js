@@ -24,6 +24,7 @@ function saveTasks() {
   if (typeof Sync !== 'undefined') Sync.stamp('tasks');
   try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (e) {}
   renderSideNav();
+  if (typeof BoardSync !== 'undefined') BoardSync.changed();   // desk robot: resend if the shown lines changed
 }
 function restoreTasks(data) {
   tasks = data;

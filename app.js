@@ -81,6 +81,7 @@ async function connect(knownPort) {
   status = null;
   log('— connected, waiting for the timer…');
   keepReading = true;
+  BoardSync.attach(writeLine);   // waits for the board's EVENT SYNC before sending anything
   readLoopDone = readLoop();
   render();
 
@@ -95,6 +96,7 @@ function portError(e) {
 }
 
 async function disconnect() {
+  BoardSync.detach();   // stop PING / relabel timers; the next connection gets a full set
   keepReading = false;
   if (reader) { try { await reader.cancel(); } catch (e) {} }
   if (readLoopDone) { try { await readLoopDone; } catch (e) {} }
@@ -134,23 +136,39 @@ async function readLoop() {
   }
 }
 
+// One serialized write queue for everything sent to the board (timer commands and
+// desk-robot task lines alike), with a short gap after each line. Lines from two senders
+// interleaved too tightly make the board answer ERR UNKNOWN.
+const LINE_GAP_MS = 50;
+function enqueueLine(line, quiet) {
+  sendChain = sendChain.then(async () => {
+    if (!port || !port.writable) return;   // unplugged meanwhile: drop it
+    const writer = port.writable.getWriter();
+    try {
+      await writer.write(new TextEncoder().encode(line + '\n'));
+      if (!quiet) log('> ' + line);
+    } finally {
+      writer.releaseLock();
+    }
+    await new Promise(r => setTimeout(r, LINE_GAP_MS));
+  }).catch(e => toast('Send failed: ' + e.message));
+  return sendChain;
+}
+
 function send(cmd) {
   if (!port) {   // no physical timer: the built-in timer handles it
     log('> ' + cmd + '  (built-in)');
     LocalTimer.command(cmd);
     return Promise.resolve();
   }
-  sendChain = sendChain.then(async () => {
-    if (!port || !port.writable) return;
-    const writer = port.writable.getWriter();
-    try {
-      await writer.write(new TextEncoder().encode(cmd + '\n'));
-      log('> ' + cmd);
-    } finally {
-      writer.releaseLock();
-    }
-  }).catch(e => toast('Send failed: ' + e.message));
-  return sendChain;
+  return enqueueLine(cmd);
+}
+
+// Board-only lines (desk-robot task sync). Unlike send(), these never go to the built-in
+// timer: with nothing connected they're simply dropped. PING isn't written to the log.
+function writeLine(line) {
+  if (!port) return Promise.resolve();
+  return enqueueLine(line, line === 'PING');
 }
 
 if ('serial' in navigator) {
@@ -176,6 +194,11 @@ function handleLine(line, at) {
     return;
   }
   log('< ' + line);
+  if (line.startsWith('#')) return;   // board debug line
+  // desk-robot lines: handled here so they never reach the timer's event handling
+  // (which would record them as session events and sync that to the cloud every 5 s)
+  if (line === 'EVENT SYNC') { if (port) BoardSync.onSyncRequest(); return; }
+  if (line === 'EVENT ALERT_ACK') return;   // logged above; nothing else to do yet
   if (line.startsWith('EVENT ')) onEvent(line.slice(6));
   else if (line.startsWith('ERR ')) toast(errorText(line.slice(4)));
 }
