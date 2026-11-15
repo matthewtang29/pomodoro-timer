@@ -1,0 +1,31 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# Editor / local tooling
+.vscode/
+.idea/
+*.swp
+*~
+.claude/
+
+# Secrets and local config: never commit
+.env
+.env.*
+*.local
+*.pem
+*.key
+vapid-private-key.txt
+*service-account*.json
+*serviceAccount*.json
+
+# Firebase / node (cloud/.gitignore covers these too; kept as a root safety net)
+node_modules/
+.firebase/
+*-debug.log
+npm-debug.log*
+
+# Local working notes: never commit or deploy
+AUDIT-PROMPTS.md
