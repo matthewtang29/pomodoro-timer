@@ -1,5 +1,5 @@
 // ================================================================= JOURNAL
-// One entry per day: a 1–10 rating of how the day went plus a written blurb.
+// One entry per day: an optional 1–10 rating of how the day went plus a written blurb.
 // Separate from the productivity score. The calendar colors days by this rating:
 //   1–3 red · 4–5 orange · 6–8 yellow · 9–10 green
 
@@ -14,10 +14,16 @@ let jDirty = false;
 let jAutoTimer = null;
 let jShowAll = false;
 
+// drop anything that isn't an entry object, so a bad backup or old data can't crash rendering
+function cleanEntries(entries) {
+  const out = {};
+  for (const [k, e] of Object.entries(entries || {})) if (e && typeof e === 'object' && !Array.isArray(e)) out[k] = e;
+  return out;
+}
 function loadJournal() {
   try {
     const d = JSON.parse(localStorage.getItem(JOURNAL_KEY));
-    if (d && d.entries && typeof d.entries === 'object') return d;
+    if (d && d.entries && typeof d.entries === 'object') { d.entries = cleanEntries(d.entries); return d; }
   } catch (e) {}
   return { v: 1, entries: {} };
 }
@@ -26,6 +32,7 @@ function saveJournal() {
   try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(journal)); } catch (e) {}
 }
 function restoreJournal(data) {
+  data.entries = cleanEntries(data.entries);
   journal = data;
   saveJournal();
   jDirty = false;
@@ -38,14 +45,22 @@ function moodBand(r) { return r <= 3 ? 'red' : r <= 5 ? 'orange' : r <= 8 ? 'yel
 const MOOD_WORD = { red: 'Rough day', orange: 'So-so day', yellow: 'Good day', green: 'Great day' };
 const RATING_WORD = ['', 'Awful', 'Really bad', 'Bad', 'Meh', 'Okay', 'Decent', 'Good', 'Really good', 'Great', 'Amazing'];
 
-// An entry's rating as low/high (same number when it isn't a range)
-function ratingLo(e) { return e.rating; }
-function ratingHi(e) { return e.ratingHigh > e.rating ? e.ratingHigh : e.rating; }
-function ratingMid(e) { return (ratingLo(e) + ratingHi(e)) / 2; }
-function ratingText(lo, hi) { return hi && hi !== lo ? `${lo}–${hi}` : String(lo); }
+// The rating is optional: an entry can be written but not rated (rating null).
+function isRated(e) { return !!e && Number.isFinite(e.rating); }
+// An entry's rating as low/high (same number when it isn't a range); null when unrated
+function ratingLo(e) { return isRated(e) ? e.rating : null; }
+function ratingHi(e) { return !isRated(e) ? null : e.ratingHigh > e.rating ? e.ratingHigh : e.rating; }
+function ratingMid(e) { return isRated(e) ? (ratingLo(e) + ratingHi(e)) / 2 : null; }
+function ratingText(lo, hi) { return lo == null ? '' : hi && hi !== lo ? `${lo}–${hi}` : String(lo); }
+// worth keeping: a rating, some text, or (later) videos
+function entryHasContent(e) {
+  return isRated(e) || (typeof e.text === 'string' && e.text.trim() !== '') || (Array.isArray(e.videos) && e.videos.length > 0);
+}
 
-// Puts the range's colors on an element: class m-<low band> sets --m, and --m2 is the high end's color
+// Puts the range's colors on an element: class m-<low band> sets --m, and --m2 is the high end's color.
+// No rating gets the neutral m-none.
 function paintMood(node, lo, hi) {
+  if (lo == null) { node.classList.add('m-none'); return node; }
   node.classList.add(`m-${moodBand(lo)}`);
   if (hi && hi !== lo) {
     node.classList.add('m-range');
@@ -56,7 +71,8 @@ function paintMood(node, lo, hi) {
 }
 
 function moodBadge(r, cls, hi) {
-  const b = paintMood(el('span', cls || 'mood-badge', `${ratingText(r, hi)}/10`), r, hi);
+  if (r == null) return el('span', 'j-unrated', 'Not rated');
+  const b =paintMood(el('span', cls || 'mood-badge', `${ratingText(r, hi)}/10`), r, hi);
   b.title = hi && hi !== r
     ? `Day rating ${r}–${hi}/10 · ${MOOD_WORD[moodBand(r)]} to ${MOOD_WORD[moodBand(hi)].toLowerCase()}`
     : `Day rating ${r}/10 · ${MOOD_WORD[moodBand(r)]}`;
@@ -104,12 +120,18 @@ function paintRating() {
     b.setAttribute('aria-checked', String(v === jRating || v === jHigh));
     b.classList.toggle('in-range', !!jHigh && v > jRating && v < jHigh);
   });
+  $('jClearRating').hidden = !jRating;
   const lab = $('jRatingLabel');
   lab.textContent = '';
   if (jRange && jRangeStart != null) lab.append(moodBadge(jRating), ' Now pick the other end');
   else if (jRating && jHigh) lab.append(moodBadge(jRating, null, jHigh), ` ${RATING_WORD[jRating]} to ${RATING_WORD[hi].toLowerCase()}`);
   else if (jRating) lab.append(moodBadge(jRating), ` ${RATING_WORD[jRating]}`);
-  else lab.textContent = jRange ? 'Pick the low end, then the high end' : 'Pick a number from 1 to 10';
+  else lab.textContent = jRange ? 'Pick the low end, then the high end' : 'Optional: pick a number from 1 to 10';
+}
+function clearRating() {
+  jRating = null; jHigh = null; jRangeStart = null;
+  markDirty();
+  paintRating();
 }
 
 function loadEditor(k) {
@@ -120,7 +142,7 @@ function loadEditor(k) {
   jRange = !!jHigh;
   jRangeStart = null;
   $('jRangeBtn').setAttribute('aria-pressed', String(jRange));
-  $('jText').value = e ? e.text : '';
+  $('jText').value = e && typeof e.text === 'string' ? e.text : '';
   $('jDate').value = k;
   $('jDate').max = dayKey(Date.now());
   const today = dayKey(Date.now());
@@ -146,30 +168,45 @@ function setStatus(text) { $('jStatus').textContent = text; }
 
 function markDirty() {
   jDirty = true;
-  setStatus(jRating ? 'Unsaved changes…' : 'Rate the day to save');
-  // auto-save shortly after you stop typing, once the day has a rating
+  setStatus('Unsaved changes…');
+  // auto-save shortly after you stop typing (not while half-way through picking a range)
   clearTimeout(jAutoTimer);
-  if (jRating && jRangeStart == null) jAutoTimer = setTimeout(() => saveEntry(true), 1500);
+  if (jRangeStart == null) jAutoTimer = setTimeout(() => saveEntry(true), 1500);
 }
 
+// Saves the editor into the day's entry. Only the fields the editor owns are touched, so
+// anything else on the entry (e.g. videos) is kept. An entry left with nothing in it is deleted.
 function saveEntry(auto) {
   clearTimeout(jAutoTimer);
-  if (!jRating) {
-    if (!auto) { toast('Rate your day from 1 to 10 first'); $('jRating').querySelector('button').focus(); }
+  const k = jDate;
+  const old = journalEntry(k);
+  const next = { ...(old || {}), rating: jRating || null, text: $('jText').value.trim(), updated: Date.now() };
+  if (jHigh && jHigh > jRating) next.ratingHigh = jHigh; else delete next.ratingHigh;
+
+  if (!entryHasContent(next)) {
+    jDirty = false;
+    if (old) { deleteEntry(); return true; }
+    setStatus('');
+    if (!auto) { toast('Write something or rate the day first'); $('jText').focus(); }
     return false;
   }
-  const existed = !!journalEntry(jDate);
-  journal.entries[jDate] = { rating: jRating, text: $('jText').value.trim(), updated: Date.now() };
-  if (jHigh && jHigh > jRating) journal.entries[jDate].ratingHigh = jHigh;
+  // update in place: the entry object stays the same one other code may hold
+  const e = old || (journal.entries[k] = {});
+  Object.assign(e, next);
+  if (!('ratingHigh' in next)) delete e.ratingHigh;
   saveJournal();
   jDirty = false;
-  $('jDelete').hidden = false;
-  $('jSave').textContent = 'Update entry';
-  setStatus(`Saved ${fmtSavedTime(Date.now())}`);
+  if (k === jDate) {
+    $('jDelete').hidden = false;
+    $('jSave').textContent = 'Update entry';
+    setStatus(`Saved ${fmtSavedTime(e.updated)}`);
+  }
   renderJournalLists();
-  if (!auto && !existed) toast(`Saved · ${MOOD_WORD[moodBand(jHigh ? (jRating + jHigh) / 2 : jRating)]}`);
+  if (!auto && !old) toast(isRated(e) ? `Saved · ${MOOD_WORD[moodBand(ratingMid(e))]}` : 'Saved');
   return true;
 }
+// save unsaved edits now (leaving the tab or date, closing the app)
+function flushJournal() { if (jDirty) saveEntry(true); }
 
 function deleteEntry() {
   const k = jDate;
@@ -187,10 +224,10 @@ function deleteEntry() {
   });
 }
 
-// switching dates keeps what you wrote if it can be saved
+// switching dates keeps what you wrote
 function switchDate(k) {
   if (k === jDate) return;
-  if (jDirty && jRating) saveEntry(true);
+  flushJournal();
   loadEditor(k);
 }
 
@@ -214,18 +251,19 @@ function renderJournalLists() {
     const cell = el('button', 'j-day' + (e ? '' : ' empty') + (k === jDate ? ' sel' : ''));
     if (e) paintMood(cell, ratingLo(e), ratingHi(e));
     cell.type = 'button';
-    const txt = e ? ratingText(ratingLo(e), ratingHi(e)) : '';
-    cell.append(el('b', null, e ? txt : '–'), el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
-    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${e ? `rated ${txt} out of 10` : 'no entry'}`);
-    cell.title = e ? `${fmtDay(k, today)} · ${txt}/10` : `${fmtDay(k, today)} · no entry`;
+    const txt = ratingText(ratingLo(e), ratingHi(e));
+    const what = !e ? 'no entry' : isRated(e) ? `rated ${txt} out of 10` : 'written, not rated';
+    cell.append(el('b', null, !e ? '–' : isRated(e) ? txt : '✎'), el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
+    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${what}`);
+    cell.title = `${fmtDay(k, today)} · ${isRated(e) ? `${txt}/10` : what}`;
     cell.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     strip.append(cell);
-    if (e) vals.push(ratingMid(e));
+    if (isRated(e)) vals.push(ratingMid(e));
   }
-  // a range counts as its midpoint in the averages
+  // a range counts as its midpoint in the averages; unrated entries are left out
   const avg = arr => (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
   const last30 = [];
-  for (let i = 0; i < 30; i++) { const e = journalEntry(shiftKey(today, -i)); if (e) last30.push(ratingMid(e)); }
+  for (let i = 0; i < 30; i++) { const e = journalEntry(shiftKey(today, -i)); if (isRated(e)) last30.push(ratingMid(e)); }
   const parts = [];
   if (vals.length) parts.push(`14-day avg ${avg(vals)}`);
   if (last30.length) parts.push(`30-day avg ${avg(last30)}`);
@@ -236,7 +274,7 @@ function renderJournalLists() {
   list.textContent = '';
   const keys = Object.keys(journal.entries).sort().reverse();
   if (!keys.length) {
-    list.append(el('div', 'task-empty', 'No entries yet. Rate your day and write a few lines above.'));
+    list.append(el('div', 'task-empty', 'No entries yet. Write a few lines or rate your day above.'));
     return;
   }
   const shown = jShowAll ? keys : keys.slice(0, 20);
@@ -261,6 +299,7 @@ function renderJournalLists() {
 
 // open the journal on a given day (used by the calendar)
 function openJournal(k) {
+  flushJournal();
   jDate = k;
   jDirty = false;
   showTab('journal');
@@ -270,6 +309,7 @@ function openJournal(k) {
 // ---------------------------------------------------------------- events
 buildRatingPicker();
 $('jRangeBtn').addEventListener('click', () => setRangeMode(!jRange));
+$('jClearRating').addEventListener('click', clearRating);
 $('jText').addEventListener('input', markDirty);
 $('jDate').addEventListener('change', () => {
   const k = $('jDate').value;
@@ -281,4 +321,6 @@ $('jDate').addEventListener('change', () => {
 $('jForm').addEventListener('submit', e => { e.preventDefault(); saveEntry(false); });
 $('jText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEntry(false); } });
 $('jDelete').addEventListener('click', deleteEntry);
-window.addEventListener('pagehide', () => { if (jDirty && jRating) saveEntry(true); });
+window.addEventListener('pagehide', flushJournal);
+// phones often background the app without a pagehide
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushJournal(); });

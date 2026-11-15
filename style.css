@@ -551,6 +551,9 @@ pre#log {
 .m-orange { --m: var(--m-orange); --m-ink: var(--m-orange-ink); }
 .m-yellow { --m: var(--m-yellow); --m-ink: var(--m-yellow-ink); }
 .m-green  { --m: var(--m-green);  --m-ink: var(--m-green-ink); }
+/* written but not rated: neutral */
+.m-none   { --m: var(--faint);     --m-ink: var(--bg); }
+.j-unrated { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .mood-badge {
   display: inline-block; background: var(--m); color: var(--m-ink);
   font-size: 12px; font-weight: 600; border-radius: 4px; padding: 0 7px; white-space: nowrap; font-variant-numeric: tabular-nums;
@@ -579,6 +582,7 @@ pre#log {
 .j-rating button.in-range { background: color-mix(in srgb, var(--m) 22%, transparent); border-color: color-mix(in srgb, var(--m) 55%, transparent); color: var(--text); }
 .j-range-btn { height: 26px; padding: 0 10px; margin: 0 auto 0 4px; font-size: 12px; color: var(--muted); }
 .j-range-btn[aria-pressed="true"] { background: var(--hover); border-color: var(--faint); color: var(--text); }
+.j-clear-btn { height: 26px; padding: 0 10px; font-size: 12px; color: var(--muted); }
 .j-notes { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; font-size: 13px; color: var(--muted); }
 #jText {
   width: 100%; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px;

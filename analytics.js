@@ -227,7 +227,7 @@ $('exportBtn').addEventListener('click', () => {
     const sc = dayScore(k);
     const je = typeof journalEntry === 'function' ? journalEntry(k) : null;
     const sl = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
-    rows.push([k, sc ? sc.score : '', je ? ratingLo(je) : '', je ? ratingHi(je) : '', m(deskOf(d)), m(d.focus), m(d.brk), m(d.other), d.blocks,
+    rows.push([k, sc ? sc.score : '', je && isRated(je) ? ratingLo(je) : '', je && isRated(je) ? ratingHi(je) : '', m(deskOf(d)), m(d.focus), m(d.brk), m(d.other), d.blocks,
       (d.sessions || []).length, taskStatsForDay(k).doneCount, sl ? (sleepMinutes(sl) / 60).toFixed(2) : '']);
   });
   download(`pomodoro-history-${dayKey(Date.now())}.csv`, rows.map(r => r.join(',')).join('\n'), 'text/csv');

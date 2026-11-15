@@ -44,11 +44,17 @@ function renderCalendar() {
     const je = calMode !== 'score' && typeof journalEntry === 'function' ? journalEntry(k) : null;
     if (je) {
       cell.classList.add('mood');
-      paintMood(cell, ratingLo(je), ratingHi(je));
-      const mb = moodBadge(ratingLo(je), 'c-mood', ratingHi(je));
-      mb.textContent = ratingText(ratingLo(je), ratingHi(je));
-      mb.append(el('small', 'of10', '/10'));   // hidden on narrow screens
-      badges.append(mb);
+      paintMood(cell, ratingLo(je), ratingHi(je));   // unrated: neutral m-none
+      if (isRated(je)) {
+        const mb = moodBadge(ratingLo(je), 'c-mood', ratingHi(je));
+        mb.textContent = ratingText(ratingLo(je), ratingHi(je));
+        mb.append(el('small', 'of10', '/10'));   // hidden on narrow screens
+        badges.append(mb);
+      } else {
+        const mb = el('span', 'c-mood m-none', '✎');
+        mb.title = 'Journal written, not rated';
+        badges.append(mb);
+      }
     }
     if (sc) badges.append(scoreBadge(sc.score, 'c-score'));
     top.append(badges);
@@ -75,7 +81,7 @@ function renderCalendar() {
     }
 
     const label = [d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })];
-    if (je) label.push(`day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10`);
+    if (je) label.push(isRated(je) ? `day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10` : 'journal written, not rated');
     if (sc) label.push(`productivity score ${sc.score}`);
     if (se) label.push(`slept ${fmtSleep(slept)}`);
     if (due.length) label.push(`${due.length} task${due.length > 1 ? 's' : ''} due`);
