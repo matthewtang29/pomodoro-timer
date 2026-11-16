@@ -39,7 +39,7 @@ const LocalTimer = (() => {
   const CONTROLS = ['PAUSE', 'RESUME', 'EXIT', 'YES', 'NO'];
 
   function save() {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...s, savedAt: Date.now() })); } catch (e) {}
+    safeSetItem(SAVE_KEY, JSON.stringify({ ...s, savedAt: Date.now() }));
   }
   function restore() {
     try {

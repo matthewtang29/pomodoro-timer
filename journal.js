@@ -23,13 +23,13 @@ function cleanEntries(entries) {
 function loadJournal() {
   try {
     const d = JSON.parse(localStorage.getItem(JOURNAL_KEY));
-    if (d && d.entries && typeof d.entries === 'object') { d.entries = cleanEntries(d.entries); return d; }
+    if (isPlainObj(d) && isPlainObj(d.entries)) { d.entries = cleanEntries(d.entries); return d; }
   } catch (e) {}
   return { v: 1, entries: {} };
 }
 function saveJournal() {
   if (typeof Sync !== 'undefined') Sync.stamp('journal');
-  try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(journal)); } catch (e) {}
+  safeSetItem(JOURNAL_KEY, JSON.stringify(journal));
 }
 function restoreJournal(data) {
   data.entries = cleanEntries(data.entries);

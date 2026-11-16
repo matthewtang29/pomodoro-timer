@@ -15,10 +15,24 @@ let liveSession = null;     // session record being filled in
 let sessionExited = false;
 let lastSave = 0;
 
+// Drop days that aren't objects and sessions that aren't objects; coerce the totals to numbers
+// so one bad day can't break the dashboard.
+function cleanStore(data) {
+  const days = {};
+  for (const [k, d] of Object.entries(data.days)) {
+    if (!isPlainObj(d)) continue;
+    for (const f of ['focus', 'brk', 'other', 'blocks']) if (!Number.isFinite(d[f])) d[f] = 0;
+    d.sessions = Array.isArray(d.sessions) ? d.sessions.filter(isPlainObj) : [];
+    days[k] = d;
+  }
+  data.days = days;
+  return data;
+}
 function loadStore() {
   let data = null;
   try { data = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
-  if (!data || typeof data.days !== 'object') data = { v: 1, days: {} };
+  if (!isPlainObj(data) || !isPlainObj(data.days)) data = { v: 1, days: {} };
+  cleanStore(data);
   // A session still marked running means the page closed mid-session
   Object.values(data.days).forEach(d => (d.sessions || []).forEach(x => {
     if (x.outcome === 'running') x.outcome = 'interrupted';
@@ -30,7 +44,7 @@ function saveStore(force) {
   if (!force && now - lastSave < 10000) return;
   lastSave = now;
   if (typeof Sync !== 'undefined') Sync.stamp('days');
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+  safeSetItem(STORE_KEY, JSON.stringify(store));
 }
 window.addEventListener('pagehide', () => saveStore(true));
 
@@ -250,7 +264,13 @@ $('restoreFile').addEventListener('change', async () => {
   let data;
   try {
     data = JSON.parse(await file.text());
-    if (data.app !== 'pomodoro' || !data.analytics || typeof data.analytics.days !== 'object') throw new Error('not a backup');
+    if (!isPlainObj(data) || data.app !== 'pomodoro' || !isPlainObj(data.analytics) || !isPlainObj(data.analytics.days)) throw new Error('not a backup');
+    // drop malformed items now, before they reach either the replace or the merge path
+    cleanStore(data.analytics);
+    if (isPlainObj(data.tasks) && Array.isArray(data.tasks.items)) cleanTasks(data.tasks); else data.tasks = null;
+    if (isPlainObj(data.habits) && isPlainObj(data.habits.items)) cleanHabits(data.habits); else data.habits = null;
+    if (isPlainObj(data.sleep) && isPlainObj(data.sleep.entries)) cleanSleep(data.sleep); else data.sleep = null;
+    if (isPlainObj(data.journal) && isPlainObj(data.journal.entries)) data.journal.entries = cleanEntries(data.journal.entries); else data.journal = null;
   } catch (e) {
     toast("That file isn't a Pomegranate backup");
     return;
@@ -275,6 +295,7 @@ $('restoreFile').addEventListener('change', async () => {
   try {
     const n = typeof Sync !== 'undefined' ? Sync.restoreBackup(data, replace) : (replace(), null);
     refreshView();
+    showStorageUsed();
     toast(n ? `Backup merged: ${n.added} added, ${n.updated} updated, ${n.kept} already newer here` : 'Backup restored');
   } catch (e) {
     toast('Restore failed: ' + (e.message || e));

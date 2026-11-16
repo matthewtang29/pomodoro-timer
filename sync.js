@@ -43,7 +43,7 @@ const Sync = (() => {
   };
   const TOMB_MAX_AGE = 90 * 864e5;
   const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-  const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const write = (k, v) => { safeSetItem(k, JSON.stringify(v)); };
 
   // ---------------------------------------------------------------- device identity
   let deviceId = read(LS.device, null);
@@ -410,14 +410,14 @@ const Sync = (() => {
             if (adoptOwnDays && ch.type !== 'removed' && !store.days[date]) {
               const d = { ...data }; delete d.date; delete d.device;
               store.days[date] = d;
-              try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+              safeSetItem(STORE_KEY, JSON.stringify(store));
               prev.days[date] = bare(d);
               changed = true;
             }
             // this device's own history was cleared from another device
             if (ch.type === 'removed' && store.days[date]) {
               delete store.days[date];
-              try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+              safeSetItem(STORE_KEY, JSON.stringify(store));
               delete prev.days[date];
               changed = true;
             }

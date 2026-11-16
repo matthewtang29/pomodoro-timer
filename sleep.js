@@ -11,16 +11,23 @@ let sleepLog = loadSleep();
 let sDate = dayKey(Date.now());
 let sQuality = null;
 
+// a day that isn't an object would crash rendering, so drop it
+function cleanSleep(d) {
+  const out = {};
+  for (const [k, e] of Object.entries(d.entries)) if (isPlainObj(e)) out[k] = e;
+  d.entries = out;
+  return d;
+}
 function loadSleep() {
   try {
     const d = JSON.parse(localStorage.getItem(SLEEP_KEY));
-    if (d && d.entries && typeof d.entries === 'object') return d;
+    if (isPlainObj(d) && isPlainObj(d.entries)) return cleanSleep(d);
   } catch (e) {}
   return { entries: {} };
 }
 function saveSleep() {
   if (typeof Sync !== 'undefined') Sync.stamp('sleep');
-  try { localStorage.setItem(SLEEP_KEY, JSON.stringify(sleepLog)); } catch (e) {}
+  safeSetItem(SLEEP_KEY, JSON.stringify(sleepLog));
 }
 function restoreSleep(data) {
   sleepLog = { entries: { ...data.entries } };

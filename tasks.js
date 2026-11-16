@@ -13,16 +13,21 @@ let editingId = null;
 let currentTaskId = null;           // task linked to the timer
 let qaState = { due: '', priority: 4, difficulty: 3, project: '' };   // values from the form controls
 
+// keep only well-formed tasks (an object with an id and a title), so bad data can't crash rendering
+function cleanTasks(d) {
+  d.items = d.items.filter(t => isPlainObj(t) && (typeof t.id === 'string' || typeof t.id === 'number') && t.id !== '' && typeof t.title === 'string');
+  return d;
+}
 function loadTasks() {
   try {
     const d = JSON.parse(localStorage.getItem(TASKS_KEY));
-    if (d && Array.isArray(d.items)) return d;
+    if (isPlainObj(d) && Array.isArray(d.items)) return cleanTasks(d);
   } catch (e) {}
   return { v: 1, items: [] };
 }
 function saveTasks() {
   if (typeof Sync !== 'undefined') Sync.stamp('tasks');
-  try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (e) {}
+  safeSetItem(TASKS_KEY, JSON.stringify(tasks));
   renderSideNav();
   if (typeof BoardSync !== 'undefined') BoardSync.changed();   // desk robot: resend if the shown lines changed
 }
@@ -745,7 +750,7 @@ function renderProjectLists() {
 // ---------------------------------------------------------------- timer link
 function setCurrentTask(id) {
   currentTaskId = id && taskById(id) && !taskById(id).done ? id : null;
-  try { localStorage.setItem('pomodoro-current-task', currentTaskId || ''); } catch (e) {}
+  safeSetItem('pomodoro-current-task', currentTaskId || '');
   renderTimerTask();
   if (!$('tasksView').hidden) renderTasks();
 }

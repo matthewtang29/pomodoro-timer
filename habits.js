@@ -8,16 +8,27 @@ const HABITS_KEY = 'pomodoro-habits-v1';
 let habits = loadHabits();
 let habitMonth = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })();
 
+// keep only well-formed habits (an object with an id and a name); checks must be an object
+function cleanHabits(d) {
+  const out = {};
+  for (const [k, h] of Object.entries(d.items)) {
+    if (!isPlainObj(h) || typeof h.id !== 'string' || h.id === '' || typeof h.name !== 'string') continue;
+    if (!isPlainObj(h.checks)) h.checks = {};
+    out[k] = h;
+  }
+  d.items = out;
+  return d;
+}
 function loadHabits() {
   try {
     const d = JSON.parse(localStorage.getItem(HABITS_KEY));
-    if (d && d.items && typeof d.items === 'object') return d;
+    if (isPlainObj(d) && isPlainObj(d.items)) return cleanHabits(d);
   } catch (e) {}
   return { items: {} };
 }
 function saveHabits() {
   if (typeof Sync !== 'undefined') Sync.stamp('habits');
-  try { localStorage.setItem(HABITS_KEY, JSON.stringify(habits)); } catch (e) {}
+  safeSetItem(HABITS_KEY, JSON.stringify(habits));
 }
 function restoreHabits(data) {
   habits = { items: { ...data.items } };

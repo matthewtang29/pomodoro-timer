@@ -41,7 +41,7 @@ function settings() {
   return { focus: clampInput(inputs.focus), brk: clampInput(inputs.brk), cycles: clampInput(inputs.cycles) };
 }
 function saveSettings() {
-  try { localStorage.setItem('pomodoro-settings', JSON.stringify(settings())); } catch (e) {}
+  safeSetItem('pomodoro-settings', JSON.stringify(settings()));
   updateTotalHint();
   render();
 }
@@ -423,6 +423,52 @@ function log(text) {
   el.textContent = lines.slice(-300).join('\n');
   el.scrollTop = el.scrollHeight;
 }
+
+// ---------------------------------------------------------------- saving
+// Every data save goes through here. If the browser refuses the write (storage full or blocked) the
+// app would otherwise keep running on in-memory data and lose it on reload, so show one persistent
+// warning (not one per failed write) and clear it as soon as a save works again.
+let saveFailing = false;
+let persistAsked = false;
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    if (!saveFailing) {
+      saveFailing = true;
+      const w = $('saveWarn');
+      if (w) w.hidden = false;
+    }
+    return false;
+  }
+  if (saveFailing) {
+    saveFailing = false;
+    const w = $('saveWarn');
+    if (w) w.hidden = true;
+  }
+  // ask once, after the first save that worked, so the browser is less likely to evict the data
+  if (!persistAsked) {
+    persistAsked = true;
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  }
+  return true;
+}
+// "Storage used" line in Settings > Your data
+function showStorageUsed() {
+  const p = $('storageUsed');
+  if (!p || !navigator.storage || !navigator.storage.estimate) return;
+  navigator.storage.estimate().then(est => {
+    if (!est || typeof est.usage !== 'number') return;
+    const mb = est.usage / 1048576;
+    let text = `Storage used: ${mb < 0.1 ? '<0.1' : mb.toFixed(1)} MB`;
+    if (est.quota > 0) text += ` of about ${est.quota >= 1073741824 ? (est.quota / 1073741824).toFixed(1) + ' GB' : Math.round(est.quota / 1048576) + ' MB'} available`;
+    p.textContent = text + '.';
+    p.hidden = false;
+  }).catch(() => {});
+}
+showStorageUsed();
+
+const isPlainObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
 let toastTimer;
 // toast('Saved') or toast('Task done', 'Undo', () => ...)
