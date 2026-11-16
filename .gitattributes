@@ -1,0 +1,2 @@
+# Keep LF line endings everywhere (the repo is already all LF); binary files are detected automatically
+* text=auto eol=lf

@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pomegranate sync tests</title>
+<!-- Tests for sync.js (cloud sync) and the backup restore in analytics.js. Runs the real app
+     (index.html and its scripts) in a frame against an in-memory fake of Firebase Auth and
+     Firestore: nothing is sent anywhere and no real account is used. The frame also gets its
+     own in-memory localStorage, service worker, push and window-lock stand-ins, so opening this
+     page next to the real app (even on the live site) leaves the app's data alone.
+     Open it from a local server or GitHub Pages; it takes about a minute and a half. -->
+<style>
+  :root { --bg: #fafaf7; --text: #1b1b19; --muted: #67655f; --ok: #3f7a4b; --bad: #b4422e; --line: #e9e7e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151715; --text: #e8e6e1; --muted: #a19e98; --ok: #9cc7a3; --bad: #f2aa8a; --line: #2c302d; } }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  #summary { margin: 0 0 20px; font-weight: 600; }
+  h2 { font-size: 14px; margin: 20px 0 6px; color: var(--muted); }
+  li { list-style: none; padding: 4px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  ul { margin: 0; padding: 0; }
+  .ok::before { content: "✓ "; color: var(--ok); }
+  .bad { color: var(--bad); } .bad::before { content: "✕ "; }
+  iframe { position: absolute; left: -9999px; width: 1100px; height: 800px; border: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sync tests</h1>
+  <p id="summary">Running… (about a minute and a half)</p>
+  <div id="out"></div>
+</main>
+<script>
+(() => {
+  const DAY = 864e5, NOW = Date.now();
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0, list = null;
+  function group(name) {
+    const h = document.createElement('h2'); h.textContent = name;
+    list = document.createElement('ul');
+    out.append(h, list);
+  }
+  function check(name, ok, info) {
+    const li = document.createElement('li');
+    li.className = ok ? 'ok' : 'bad';
+    li.textContent = name + (ok || info === undefined ? '' : '  →  ' + JSON.stringify(info));
+    list.append(li);
+    ok ? pass++ : fail++;
+  }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------------------------------------------------------------- stand-ins inside the frame
+  // Called by a script injected at the top of the frame's <head>, before any app script.
+  const FS = { docs: {}, writes: [], commitDelay: 0, listeners: [] };
+  const auth = { currentUser: null, nextUser: null, cb: null };
+  window.installFakes = w => {
+    const mem = {};
+    const storage = {
+      getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); },
+      removeItem: k => { delete mem[k]; }, clear: () => { for (const k in mem) delete mem[k]; },
+      key: i => Object.keys(mem)[i] ?? null, get length() { return Object.keys(mem).length; },
+    };
+    Object.defineProperty(w, 'localStorage', { value: storage, configurable: true });
+    Object.defineProperty(w.navigator, 'serviceWorker', { configurable: true, value: {
+      controller: null, ready: new Promise(() => {}), addEventListener() {},
+      register: () => Promise.resolve({ update() {} }), getRegistration: () => Promise.resolve(undefined),
+    } });
+    Object.defineProperty(w.navigator, 'locks', { configurable: true, value: { request: (n, o, cb) => Promise.resolve(cb({})) } });
+    w.BroadcastChannel = class { postMessage() {} close() {} };
+    w.history.replaceState = () => {};
+    w.confirm = msg => { (w.__confirms = w.__confirms || []).push(msg); return true; };
+    w.localStorage.setItem('pomodoro-sync-tombstones', JSON.stringify({ tasks: { oldTomb: NOW - 100 * DAY, newTomb: NOW - 10 * DAY }, journal: {} }));
+    w.firebase = fakeFirebase();
+  };
+
+  const colOf = p => p.split('/').slice(0, -1).join('/');
+  const copy = o => JSON.parse(JSON.stringify(o));
+  const snapDoc = (path, data, pending) => ({ id: path.split('/').pop(), ref: docRef(path), data: () => data && copy(data), metadata: { hasPendingWrites: !!pending } });
+  function notify(path, type, data, pending) {
+    const c = colOf(path);
+    FS.listeners.filter(l => l.col === c && l.active).forEach(l =>
+      setTimeout(() => l.active && l.next({ docChanges: () => [{ type, doc: snapDoc(path, data, pending) }] }), 0));
+  }
+  // pending = written by the app itself (Firestore echoes those with hasPendingWrites)
+  function put(path, data, pending) {
+    const type = path in FS.docs ? 'modified' : 'added';
+    FS.docs[path] = copy(data);
+    FS.writes.push({ path, data: FS.docs[path], pending });
+    notify(path, type, FS.docs[path], pending);
+  }
+  function del(path, pending) {
+    const old = FS.docs[path]; if (!old) return;
+    delete FS.docs[path];
+    FS.writes.push({ path, deleted: true, pending });
+    notify(path, 'removed', old, pending);
+  }
+  const other = { set: (p, d) => put(p, d, false) };   // "another device"
+  function docRef(path) {
+    return {
+      path, id: path.split('/').pop(),
+      set: d => { put(path, d, true); return Promise.resolve(); },
+      delete: () => { del(path, true); return Promise.resolve(); },
+      get: () => Promise.resolve({ exists: path in FS.docs, data: () => FS.docs[path] }),
+      onSnapshot: () => () => {},
+    };
+  }
+  function collection(col) {
+    return {
+      doc: id => docRef(col + '/' + id),
+      get: () => Promise.resolve({ docs: Object.keys(FS.docs).filter(p => colOf(p) === col).map(p => snapDoc(p, FS.docs[p])) }),
+      onSnapshot(next, err) {
+        const l = { col, next, err, active: true };
+        FS.listeners.push(l);
+        setTimeout(() => {
+          if (!l.active) return;
+          const ch = Object.keys(FS.docs).filter(p => colOf(p) === col).map(p => ({ type: 'added', doc: snapDoc(p, FS.docs[p]) }));
+          next({ docChanges: () => ch });
+        }, 10);
+        return () => { l.active = false; };
+      },
+    };
+  }
+  const failListeners = () => FS.listeners.filter(l => l.active).forEach(l => { l.active = false; l.err(new Error('fake listener failure')); });
+  function fakeFirebase() {
+    const db = {
+      collection, doc: docRef,
+      batch() {
+        const ops = [];
+        return {
+          set: (r, d) => ops.push(['set', r.path, d]), delete: r => ops.push(['del', r.path]),
+          commit: () => new Promise(res => setTimeout(() => {
+            ops.forEach(([op, p, d]) => (op === 'set' ? put(p, d, true) : del(p, true)));
+            res();
+          }, FS.commitDelay)),
+        };
+      },
+    };
+    const a = {
+      get currentUser() { return auth.currentUser; },
+      onAuthStateChanged(cb) { auth.cb = cb; setTimeout(() => cb(auth.currentUser), 0); },
+      signInWithPopup() { auth.currentUser = auth.nextUser; auth.cb(auth.currentUser); return Promise.resolve(); },
+      signOut() { auth.currentUser = null; auth.cb(null); return Promise.resolve(); },
+    };
+    return { apps: [], initializeApp() { this.apps.push(1); }, auth: Object.assign(() => a, { GoogleAuthProvider: function () {} }), firestore: () => db };
+  }
+
+  // ---------------------------------------------------------------- the tests
+  async function run(w) {
+    const g = expr => w.eval(expr);   // the app's top-level let/const aren't window properties
+    const $ = id => w.document.getElementById(id);
+    const Sync = g('Sync');
+    const task = (id, title, u, extra) => ({ id, title, due: null, priority: 4, difficulty: 3, project: '', created: NOW - 100000, done: null, focusSec: 0, ...(u ? { u } : {}), ...extra });
+    const cloud = p => FS.docs[p];
+    const local = id => g('tasks').items.find(t => t.id === id);
+    const lsTomb = () => JSON.parse(w.localStorage.getItem('pomodoro-sync-tombstones'));
+    const lsUid = () => JSON.parse(w.localStorage.getItem('pomodoro-sync-uid'));
+    const writesSince = (n, f) => FS.writes.slice(n).filter(f);
+    const isTombWrite = x => x.deleted || (x.data && x.data.deleted);
+    const acctDialog = () => w.document.querySelector('dialog[aria-labelledby="acctSwitchTitle"]');
+    const choose = re => [...acctDialog().querySelectorAll('button')].find(b => re.test(b.textContent)).click();
+    const listening = uid => FS.listeners.filter(l => l.active && l.col.startsWith(`users/${uid}/`)).length;
+    const dev = Sync.deviceId;
+    const day = (focus, u) => ({ focus, brk: 0, other: 0, blocks: 1, sessions: [], u });
+    function restore(data) {
+      const dt = new w.DataTransfer();
+      dt.items.add(new w.File([JSON.stringify(data)], 'backup.json', { type: 'application/json' }));
+      $('restoreFile').files = dt.files;
+      $('restoreFile').dispatchEvent(new w.Event('change'));
+    }
+
+    group('Safety of this test page');
+    check('frame uses its own in-memory localStorage', w.localStorage !== window.localStorage && w.localStorage.getItem('pomodoro-sync-tombstones') !== window.localStorage.getItem('pomodoro-sync-tombstones'));
+    check('frame does not use the real service worker', !w.navigator.serviceWorker.getRegistrations);
+
+    group('F: deletion markers older than 90 days');
+    const t0 = lsTomb();
+    check('local marker >90 days pruned at start', !('oldTomb' in t0.tasks), t0);
+    check('local marker <90 days kept', 'newTomb' in t0.tasks, t0);
+
+    // account A in the cloud
+    other.set('users/A/tasks/t1', task('t1', 'cloud new', NOW - 1000));
+    other.set('users/A/tasks/t2', { deleted: true, u: NOW - 2000 });
+    other.set('users/A/tasks/staleDel', { deleted: true, u: NOW - 100 * DAY });
+    other.set('users/A/journal/2026-01-01', { rating: 5, text: 'cloud', updated: NOW - 1000, u: NOW - 1000 });
+    other.set('users/A/days/2026-02-02__otherdev', { ...day(900, NOW - 3000), date: '2026-02-02', device: 'otherdev' });
+    auth.nextUser = { uid: 'A', email: 'a@example.test' };
+    Sync.signIn();
+    await wait(7000);
+    check('cloud marker >90 days deleted from the cloud', !cloud('users/A/tasks/staleDel'));
+    check('cloud marker <90 days kept', !!(cloud('users/A/tasks/t2') || {}).deleted);
+    check('stale cloud marker not copied back locally', !('staleDel' in lsTomb().tasks));
+    check('(setup) signed in as A, data downloaded, uid saved', !!local('t1') && lsUid() === 'A');
+    check('(setup) other device\'s study day counted', g("peekDay('2026-02-02').focus") === 900, g("peekDay('2026-02-02')"));
+
+    group('A: restoring an old backup while signed in');
+    let mark = FS.writes.length;
+    const tombBeforeMerge = JSON.stringify(lsTomb());
+    w.__confirms = [];
+    restore({
+      app: 'pomodoro', version: 1, exported: new Date(NOW - 30 * DAY).toISOString(), goal: 300,
+      analytics: { v: 1, days: { '2026-01-03': day(600) } },
+      tasks: { v: 1, items: [task('t1', 'old backup', NOW - 50000), task('t2', 'deleted later', NOW - 60000), task('t3', 'from backup', NOW - 70000), task('t4', 'no u', 0, { created: NOW - 80000 })] },
+      journal: { v: 1, entries: { '2026-01-01': { rating: 2, text: 'backup', updated: NOW - 90000 }, '2026-01-02': { rating: 6, text: 'backup only', updated: NOW - 90000 } } },
+      habits: { items: {} }, sleep: { entries: {} },
+    });
+    await wait(5000);
+    check('asks first, and says it merges', w.__confirms.length === 1 && /merged/.test(w.__confirms[0]), w.__confirms);
+    check('newer task kept here and in the cloud', local('t1').title === 'cloud new' && cloud('users/A/tasks/t1').title === 'cloud new', [local('t1'), cloud('users/A/tasks/t1')]);
+    check('task deleted after the backup stays deleted (here and in the cloud)', !local('t2') && cloud('users/A/tasks/t2').deleted === true, [local('t2'), cloud('users/A/tasks/t2')]);
+    check('missing task added with its own time and uploaded', (local('t3') || {}).u === NOW - 70000 && (cloud('users/A/tasks/t3') || {}).u === NOW - 70000, [local('t3'), cloud('users/A/tasks/t3')]);
+    check('task with no "u" gets its created time', (cloud('users/A/tasks/t4') || {}).u === NOW - 80000, cloud('users/A/tasks/t4'));
+    check('newer journal entry kept', g('journal').entries['2026-01-01'].text === 'cloud' && cloud('users/A/journal/2026-01-01').text === 'cloud');
+    check('missing journal entry added and uploaded', (cloud('users/A/journal/2026-01-02') || {}).text === 'backup only');
+    check('missing study day added', (g('store').days['2026-01-03'] || {}).focus === 600);
+    check('no deletion markers written', writesSince(mark, isTombWrite).length === 0, writesSince(mark, isTombWrite));
+    check('no local deletion markers created or changed', JSON.stringify(lsTomb()) === tombBeforeMerge, [tombBeforeMerge, lsTomb()]);
+    check('focus goal left alone', g('focusGoalMin') !== 300, g('focusGoalMin'));
+
+    group('C: an edit made while an upload is in flight');
+    FS.commitDelay = 5000;
+    local('t3').title = 'edit 1'; g('saveTasks()');               // upload starts at +2 s, ends at +7 s
+    await wait(3000);
+    local('t1').title = 'edit during upload'; g('saveTasks()');   // its own flush fires at +5 s, mid-upload
+    await wait(14000);
+    check('reaches the cloud with no further edits', cloud('users/A/tasks/t1').title === 'edit during upload', cloud('users/A/tasks/t1'));
+    FS.commitDelay = 0;
+
+    group('E: an unsaved local change while a remote change arrives');
+    local('t3').focusSec = 99;   // like focus time ticking on the linked task (saved every 10 s)
+    other.set('users/A/tasks/t1', task('t1', 'remote edit', Date.now() + 10));
+    await wait(4000);
+    check('remote change applied', local('t1').title === 'remote edit', local('t1'));
+    check('local change kept and uploaded', local('t3').focusSec === 99 && cloud('users/A/tasks/t3').focusSec === 99, cloud('users/A/tasks/t3'));
+
+    group('D: a listener error');
+    failListeners();
+    await wait(100);
+    check('error shown', /fake listener failure/.test($('syncPanel').textContent), $('syncPanel').textContent);
+    await wait(6000);
+    check('re-subscribed after the 5 s backoff', listening('A') === 6, listening('A'));
+    other.set('users/A/tasks/t5', task('t5', 'after reconnect', Date.now()));
+    await wait(1000);
+    check('changes arrive again', !!local('t5'));
+    check('error cleared', !/fake listener failure/.test($('syncPanel').textContent), $('syncPanel').textContent);
+    failListeners();
+    await wait(100);
+    w.dispatchEvent(new w.Event('online'));
+    await wait(500);
+    check('"online" re-subscribes without waiting', listening('A') === 6, listening('A'));
+
+    group('B: signing in with a different account');
+    await Sync.signOut();
+    await wait(500);
+    other.set('users/B/tasks/b1', task('b1', 'B task', NOW - 5000));
+    other.set(`users/B/days/2026-02-01__${dev}`, { ...day(1200, NOW - 5000), date: '2026-02-01', device: dev });   // this device's history in B
+    mark = FS.writes.length;
+    auth.nextUser = { uid: 'B', email: 'b@example.test' };
+    Sync.signIn();
+    await wait(2000);
+    check('merge/replace prompt shown', !!acctDialog() && acctDialog().open);
+    local('t3').title = 'edit while the prompt is open'; g('saveTasks()');
+    await wait(4000);
+    check('nothing uploaded before choosing', writesSince(mark, x => x.pending).length === 0, writesSince(mark, x => x.pending));
+    check('not listening to B before choosing', listening('B') === 0);
+    check('shows as signed out meanwhile', !Sync.signedIn);
+    choose(/Replace/);
+    await wait(4000);
+    check('replace: device holds only B\'s tasks', g('tasks').items.map(t => t.id).join() === 'b1', g('tasks').items.map(t => t.id));
+    check('replace: this device\'s study history in B is loaded back', (g('store').days['2026-02-01'] || {}).focus === 1200, g('store').days);
+    check('replace: A\'s other-device study time no longer shown', g("peekDay('2026-02-02').focus") === 0, g("peekDay('2026-02-02')"));
+    check('replace: none of A\'s items uploaded to B', writesSince(mark, x => x.pending && x.path.startsWith('users/B/') && /\/(tasks\/t|journal\/|days\/2026-01-03)/.test(x.path)).length === 0);
+    check('replace: no deletion markers written', writesSince(mark, isTombWrite).length === 0);
+    check('replace: A\'s cloud data untouched', cloud('users/A/tasks/t1').title === 'remote edit' && !!cloud('users/A/tasks/t3'));
+    check('replace: remembers B', lsUid() === 'B');
+
+    await Sync.signOut();
+    await wait(500);
+    mark = FS.writes.length;
+    auth.nextUser = { uid: 'A', email: 'a@example.test' };
+    Sync.signIn();
+    await wait(1000);
+    check('prompt shown again when switching back', !!acctDialog() && acctDialog().open);
+    check('nothing uploaded before choosing', writesSince(mark, x => x.pending).length === 0);
+    choose(/Merge/);
+    await wait(5000);
+    check('merge: this device\'s data uploaded into A', !!cloud('users/A/tasks/b1') && !!cloud(`users/A/days/2026-02-01__${dev}`));
+    check('merge: A\'s data downloaded', !!local('t1') && !!local('b1'));
+    check('merge: no deletion markers written', writesSince(mark, isTombWrite).length === 0);
+    check('merge: remembers A', lsUid() === 'A');
+
+    await Sync.signOut(); await wait(500);
+    mark = FS.writes.length;
+    auth.nextUser = { uid: 'B', email: 'b@example.test' };
+    Sync.signIn(); await wait(1000);
+    acctDialog().dispatchEvent(new w.Event('cancel', { cancelable: true }));   // Esc
+    await wait(1000);
+    check('Esc on the prompt signs out', !Sync.signedIn && !auth.currentUser && !acctDialog());
+    check('…and nothing was uploaded', writesSince(mark, x => x.pending).length === 0);
+
+    group('Restoring while signed out');
+    const tombBefore = JSON.stringify(lsTomb());
+    w.__confirms = [];
+    restore({ app: 'pomodoro', version: 1, analytics: { v: 1, days: {} }, tasks: { v: 1, items: [task('r1', 'restored', NOW - 1)] }, journal: { v: 1, entries: {} } });
+    await wait(1000);
+    check('asks first, and says it replaces', w.__confirms.length === 1 && /replaces/.test(w.__confirms[0]), w.__confirms);
+    check('data replaced', g('tasks').items.map(t => t.id).join() === 'r1');
+    check('no deletion markers created', JSON.stringify(lsTomb()) === tombBefore, [tombBefore, lsTomb()]);
+  }
+
+  // ---------------------------------------------------------------- start: the app in a frame
+  (async () => {
+    const errors = [];
+    try {
+      const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+      const frame = document.createElement('iframe');
+      frame.title = 'App under test';
+      frame.srcdoc = html.replace(/<head>/i, '<head><script>parent.installFakes(window)<\/script>');
+      const loaded = new Promise(r => frame.addEventListener('load', r, { once: true }));
+      document.body.append(frame);
+      await loaded;
+      const w = frame.contentWindow;
+      w.addEventListener('error', e => errors.push(e.message + ' (' + String(e.filename).split('/').pop() + ':' + e.lineno + ')'));
+      w.addEventListener('unhandledrejection', e => errors.push('unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+      await wait(800);
+      await run(w);
+    } catch (e) {
+      errors.push('test crashed: ' + (e.stack || e));
+    }
+    group('Errors in the app during the run');
+    check('none', errors.length === 0, errors);
+    const s = document.getElementById('summary');
+    s.textContent = `${pass} passed, ${fail} failed`;
+    s.className = fail ? 'bad' : 'ok';
+    document.title = (fail ? '✕ ' : '✓ ') + 'Pomegranate sync tests';
+  })();
+})();
+</script>
+</body>
+</html>
