@@ -11,6 +11,10 @@
 // - Study history (focus/break time, sessions) is stored per device, so two
 //   devices studying on the same day never overwrite each other. The Calendar
 //   and the timer's stats add up all devices.
+// - Deletion markers are dropped after 90 days (here and in the cloud). A device that stays
+//   offline longer than that can bring a deleted item back.
+// - Known limitation: "newer" means each device's own clock. If one device's clock is far
+//   off, its changes win (or lose) when they shouldn't. Not handled.
 //
 // Cloud layout:  users/{uid}/tasks/{taskId}
 //                users/{uid}/journal/{YYYY-MM-DD}
@@ -35,7 +39,9 @@ const Sync = (() => {
   const LS = {
     device: 'pomodoro-device-id', enabled: 'pomodoro-sync-enabled',
     tomb: 'pomodoro-sync-tombstones', remote: 'pomodoro-sync-remote-days', metaU: 'pomodoro-goal-u',
+    uid: 'pomodoro-sync-uid',   // last account this device synced with, to notice an account switch
   };
+  const TOMB_MAX_AGE = 90 * 864e5;
   const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
   const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
@@ -55,7 +61,11 @@ const Sync = (() => {
   let remoteDays = read(LS.remote, {});                      // deviceId -> { date: day }
   let metaU = read(LS.metaU, 0);
   const dirty = { tasks: new Set(), journal: new Set(), days: new Set(), habits: new Set(), sleep: new Set(), meta: false };
-  let applying = false;     // true while writing changes that came from the cloud
+  // While writing changes that came from elsewhere (the cloud, a backup), the saves must not
+  // look like fresh local edits. A Set: only those ids are taken as-is; anything else that
+  // changed is a real local edit not saved yet (e.g. focus time ticking on the linked task)
+  // and is stamped as usual. true: take everything as-is (restoring a backup signed out).
+  let applying = false;
 
   const bare = o => { const c = { ...o }; delete c.u; return JSON.stringify(c); };
   const now = () => Date.now();
@@ -73,22 +83,102 @@ const Sync = (() => {
   function stamp(kind) {
     const items = itemsOf(kind);
     const seen = prev[kind];
+    const asIs = id => applying === true || (applying instanceof Set && applying.has(id));
+    let local = false;
     for (const [id, item] of Object.entries(items)) {
       const j = bare(item);
       if (seen[id] !== j) {
         seen[id] = j;
-        if (!applying) { item.u = now(); dirty[kind].add(id); if (tomb[kind]) delete tomb[kind][id]; }
+        if (!asIs(id)) { item.u = now(); dirty[kind].add(id); if (tomb[kind]) delete tomb[kind][id]; local = true; }
       }
     }
     for (const id of Object.keys(seen)) {
       if (!(id in items)) {
         delete seen[id];
-        if (!applying && tomb[kind]) { tomb[kind][id] = now(); dirty[kind].add(id); }
+        if (!asIs(id) && tomb[kind]) { tomb[kind][id] = now(); dirty[kind].add(id); local = true; }
       }
     }
-    if (!applying) { if (kind !== 'days') write(LS.tomb, tomb); schedule(kind === 'days' ? 30000 : 2000); }
+    if (!applying || local) { if (kind !== 'days') write(LS.tomb, tomb); schedule(kind === 'days' ? 30000 : 2000); }
   }
   function stampMeta() { if (applying) return; metaU = now(); write(LS.metaU, metaU); dirty.meta = true; schedule(2000); }
+
+  function pruneTombs() {
+    const cut = now() - TOMB_MAX_AGE;
+    let n = 0;
+    for (const kind in tomb) for (const id in tomb[kind]) if (tomb[kind][id] < cut) { delete tomb[kind][id]; n++; }
+    if (n) write(LS.tomb, tomb);
+  }
+  const hasDirty = () => dirty.meta || ['tasks', 'journal', 'days', 'habits', 'sleep'].some(k => dirty[k].size > 0);
+
+  // ---------------------------------------------------------------- restoring a backup
+  // Old backups may hold items saved before sync existed (no "u"). Give them their own edit
+  // time (or 1) so other devices accept them, without making them look newer than they are.
+  function withTimes(data) {
+    const lists = [data.tasks && data.tasks.items, data.journal && data.journal.entries,
+      data.habits && data.habits.items, data.sleep && data.sleep.entries];
+    lists.forEach(l => Object.values(l || {}).forEach(it => {
+      if (it && typeof it === 'object' && !it.u) it.u = it.updated || it.created || 1;
+    }));
+  }
+
+  // Signed in: merge the backup instead of replacing. Items missing here are added; where both
+  // have an item the newer "u" (or "updated") wins, and a deletion newer than the backup's copy
+  // counts as the newer version. Nothing is deleted or tombstoned, and merged items keep their
+  // own times, so an old backup can't override newer changes on other devices.
+  // Signed out: replace() swaps the data in quietly (no new times, no tombstones), so if this
+  // device signs in later the backup's items only win where they really are newer.
+  function restoreBackup(data, replace) {
+    withTimes(data);
+    if (!user) {
+      applying = true;
+      try { replace(); } finally { applying = false; }
+      return null;
+    }
+    const ts = o => (o && (o.u || o.updated)) || 0;
+    const n = { added: 0, updated: 0, kept: 0 };
+    const taskMap = data.tasks && Array.isArray(data.tasks.items)
+      ? Object.fromEntries(data.tasks.items.filter(t => t && t.id).map(t => [t.id, t])) : null;
+    const plan = [
+      ['tasks', taskMap, saveTasks],
+      ['journal', data.journal && cleanEntries(data.journal.entries), saveJournal],
+      ['habits', data.habits && data.habits.items, saveHabits],
+      ['sleep', data.sleep && data.sleep.entries, saveSleep],
+      ['days', data.analytics && data.analytics.days, () => saveStore(true)],
+    ];
+    try {
+      for (const [kind, incoming, save] of plan) {
+        if (!incoming || typeof incoming !== 'object') continue;
+        const items = itemsOf(kind);
+        const ids = new Set();
+        for (const [id, item] of Object.entries(incoming)) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+          const local = items[id];
+          const mine = local ? ts(local) : (tomb[kind] && tomb[kind][id]) || -1;
+          if (ts(item) <= mine) { n.kept++; continue; }
+          const copy = { ...item };
+          if (kind === 'tasks') {
+            const i = tasks.items.findIndex(t => t.id === id);
+            if (i >= 0) tasks.items[i] = copy; else tasks.items.push(copy);
+          } else if (kind === 'days') store.days[id] = copy;
+          else items[id] = copy;
+          local ? n.updated++ : n.added++;
+          ids.add(id);
+          if (tomb[kind]) delete tomb[kind][id];
+          // before the first download, queueLocalNewer() does this comparison instead
+          if (firstLoaded[kind] && (!(id in remoteU[kind]) || (copy.u || 0) > remoteU[kind][id])) dirty[kind].add(id);
+        }
+        if (!ids.size) continue;
+        applying = ids;
+        try { save(); } finally { applying = false; }
+      }
+    } finally {
+      applying = false;
+      write(LS.tomb, tomb);
+      schedule(2000);
+      refreshViews();
+    }
+    return n;
+  }
 
   function primePrev() {
     ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(kind => {
@@ -182,36 +272,109 @@ const Sync = (() => {
   }
   async function signOut() {
     await flush();
+    await flush();   // the first may only have waited for a batch already in flight
     if (typeof Push !== 'undefined') await Push.forget();   // stop alerts on this device
     write(LS.enabled, false);
     if (auth) await auth.signOut();
   }
 
   function onSignedIn(u) {
+    const last = read(LS.uid, null);
+    // (no saved account: first sign-in here, or a device from before this was remembered)
+    if (last && last !== u.uid) { askAccountSwitch(u); return; }
+    begin(u);
+  }
+  function begin(u) {
     user = u;
     write(LS.enabled, true);
+    write(LS.uid, u.uid);
     firstLoaded = {};
     remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
     setState('syncing');
-    unsubs.forEach(f => f());
-    const err = e => { setState('error', e.message || String(e)); };
-    unsubs = [
-      col('tasks').onSnapshot(s => onSnap('tasks', s), err),
-      col('journal').onSnapshot(s => onSnap('journal', s), err),
-      col('days').onSnapshot(s => onSnap('days', s), err),
-      col('meta').onSnapshot(s => onSnap('meta', s), err),
-      col('habits').onSnapshot(s => onSnap('habits', s), err),
-      col('sleep').onSnapshot(s => onSnap('sleep', s), err),
-    ];
+    listen();
     db.collection(`users/${u.uid}/devices`).doc(deviceId).set({ name: deviceName, lastSeen: now() }).catch(() => {});
     if (typeof LiveSync !== 'undefined') LiveSync.onAuth(u, db);   // shared timer sessions
     if (typeof Push !== 'undefined') Push.onAuth(u, db);           // alerts while the app is closed
     if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(u, db);   // desk robot: Claude Code status
   }
+
+  // A listener stops for good after an error, so drop them all and subscribe again,
+  // waiting longer after each failure (5 s doubling to 5 min), or straight away when back online.
+  let retryTimer = null, retryMs = 0, listenFailed = false;
+  function listen() {
+    clearTimeout(retryTimer); retryTimer = null;
+    unsubs.forEach(f => f()); unsubs = [];
+    if (!user) return;
+    const err = e => {
+      if (retryTimer) return;   // several listeners can fail together
+      listenFailed = true;
+      setState('error', navigator.onLine ? (e.message || String(e)) : 'Offline');
+      unsubs.forEach(f => f()); unsubs = [];
+      retryMs = Math.min(retryMs ? retryMs * 2 : 5000, 300000);
+      retryTimer = setTimeout(listen, retryMs);
+    };
+    unsubs = ['tasks', 'journal', 'days', 'meta', 'habits', 'sleep'].map(kind => col(kind).onSnapshot(s => onSnap(kind, s), err));
+  }
+
+  // Signed in with a different account than the one this device last synced with.
+  // Nothing is sent or received until a choice is made, so the accounts never mix by accident.
+  let switchDialog = null;
+  function askAccountSwitch(u) {
+    if (switchDialog) return;
+    setState('off');
+    const d = switchDialog = el('dialog', 'qa-dialog');
+    const done = fn => { d.remove(); switchDialog = null; fn(); };   // remove() also closes it
+    d.setAttribute('aria-labelledby', 'acctSwitchTitle');
+    const h = el('h3', null, 'Different account');
+    h.id = 'acctSwitchTitle';
+    d.append(h,
+      el('p', 'sync-note', `You signed in as ${u.email || 'a different Google account'}, but this device last synced with another account.`),
+      el('p', 'sync-note', 'Merge: this device\'s tasks, journal, habits, sleep and study history are added to this account.'),
+      el('p', 'sync-note', 'Replace: they are removed from this device (the other account keeps its own copy in the cloud) and this account\'s data is loaded instead. Use Back up first if something here never synced.'));
+    const row = el('div', 'tm-btns');
+    const btn = (text, cls, fn) => {
+      const b = el('button', cls, text); b.type = 'button';
+      b.addEventListener('click', () => done(fn));
+      row.append(b);
+    };
+    const start_ = replace => {
+      remoteDays = {}; write(LS.remote, remoteDays);   // the other account's devices
+      if (replace) wipeLocal();
+      begin(u);
+    };
+    btn('Merge into this account', 'small', () => start_(false));
+    btn('Replace this device\'s data', 'small danger', () => start_(true));
+    btn('Sign out', 'small', () => signOut());
+    d.append(row);
+    d.addEventListener('cancel', e => { e.preventDefault(); done(signOut); });   // Esc = sign out
+    document.body.append(d);
+    d.showModal();
+  }
+  // Empty this device's copy (no tombstones: nothing here should be deleted in the cloud)
+  let adoptOwnDays = false;
+  function wipeLocal() {
+    applying = true;
+    try {
+      tasks.items = []; saveTasks();
+      journal.entries = {}; jDirty = false; saveJournal();
+      habits.items = {}; saveHabits();
+      sleepLog.entries = {}; saveSleep();
+      store = { v: 1, days: {} }; liveSession = null; saveStore(true);
+    } finally { applying = false; }
+    Object.keys(tomb).forEach(k => { tomb[k] = {}; });
+    write(LS.tomb, tomb);
+    metaU = 0; write(LS.metaU, 0);   // take the account's goal
+    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => dirty[k].clear()); dirty.meta = false;
+    adoptOwnDays = true;   // load this device's study history if this account already has some
+    refreshViews();
+  }
+
   function onSignedOut() {
+    clearTimeout(retryTimer); retryTimer = null;
     unsubs.forEach(f => f());
     unsubs = [];
     user = null;
+    if (switchDialog) { switchDialog.remove(); switchDialog = null; }
     if (typeof LiveSync !== 'undefined') LiveSync.onAuth(null, null);
     if (typeof Push !== 'undefined') Push.onAuth(null, null);
     if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(null, null);
@@ -221,6 +384,10 @@ const Sync = (() => {
   // ---------------------------------------------------------------- receiving changes
   function onSnap(kind, snap) {
     let changed = false;
+    const ids = new Set();   // items this snapshot wrote, the only ones stamp() takes as-is
+    const cut = now() - TOMB_MAX_AGE;
+    retryMs = 0;
+    if (listenFailed) { listenFailed = false; setState('synced'); }
     applying = true;
     try {
       snap.docChanges().forEach(ch => {
@@ -239,6 +406,14 @@ const Sync = (() => {
         if (kind === 'days') {
           const [date, dev] = doc.id.split('__');
           if (dev === deviceId) {
+            // after "Replace this device's data": take back this device's history in this account
+            if (adoptOwnDays && ch.type !== 'removed' && !store.days[date]) {
+              const d = { ...data }; delete d.date; delete d.device;
+              store.days[date] = d;
+              try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+              prev.days[date] = bare(d);
+              changed = true;
+            }
             // this device's own history was cleared from another device
             if (ch.type === 'removed' && store.days[date]) {
               delete store.days[date];
@@ -258,6 +433,8 @@ const Sync = (() => {
         // tasks / journal / habits / sleep
         remoteU[kind][doc.id] = data.u || 0;
         if (ch.type === 'removed') return;
+        const old = data.deleted && (data.u || 0) < cut;
+        if (old) staleTombs.push(doc.ref);
         const items = itemsOf(kind);
         const local = items[doc.id];
         const localU = local ? (local.u || 0) : (tomb[kind][doc.id] || 0);
@@ -266,9 +443,10 @@ const Sync = (() => {
           if (local) {
             if (kind === 'tasks') tasks.items = tasks.items.filter(t => t.id !== doc.id);
             else delete items[doc.id];
+            ids.add(doc.id);
             changed = true;
           }
-          tomb[kind][doc.id] = data.u;
+          if (!old) tomb[kind][doc.id] = data.u;
         } else {
           const item = { ...data };
           if (kind === 'tasks') {
@@ -278,9 +456,12 @@ const Sync = (() => {
             items[doc.id] = item;
           }
           delete tomb[kind][doc.id];
+          ids.add(doc.id);
           changed = true;
         }
       });
+      if (kind === 'days') adoptOwnDays = false;
+      applying = ids;
       if (changed) {
         if (kind === 'tasks') saveTasks();
         if (kind === 'journal') saveJournal();
@@ -292,6 +473,7 @@ const Sync = (() => {
     } finally {
       applying = false;
     }
+    if (staleTombs.length) { clearTimeout(pruneTimer); pruneTimer = setTimeout(pruneCloudTombs, 5000); }
 
     if (!firstLoaded[kind]) {
       firstLoaded[kind] = true;
@@ -304,6 +486,20 @@ const Sync = (() => {
       }
     }
     if (changed) refreshViews();
+  }
+
+  // Deletion markers older than 90 days are removed from the cloud by whichever device sees them
+  let staleTombs = [], pruneTimer = null;
+  async function pruneCloudTombs() {
+    if (!user) { staleTombs = []; return; }
+    const refs = staleTombs.splice(0);
+    try {
+      for (let i = 0; i < refs.length; i += 400) {
+        const b = db.batch();
+        refs.slice(i, i + 400).forEach(r => b.delete(r));
+        await b.commit();
+      }
+    } catch (e) {}   // tried again next time they're seen
   }
 
   // After the first download, upload anything this device has that the cloud doesn't (or is older)
@@ -339,10 +535,12 @@ const Sync = (() => {
     flushTimer = setTimeout(flush, ms);
   }
 
+  let inflight = null;   // the batch being sent, so a second flush() can wait for it
   async function flush() {
     clearTimeout(flushTimer);
     flushTimer = null;
-    if (!user || flushing) return;
+    if (!user) return;
+    if (flushing) return inflight;   // it schedules another flush when it ends if more changed meanwhile
     const ops = [];
     dirty.tasks.forEach(id => {
       const t = tasks.items.find(x => x.id === id);
@@ -376,6 +574,9 @@ const Sync = (() => {
     const sent = { tasks: [...dirty.tasks], journal: [...dirty.journal], days: [...dirty.days], habits: [...dirty.habits], sleep: [...dirty.sleep], meta: dirty.meta };
     dirty.tasks.clear(); dirty.journal.clear(); dirty.habits.clear(); dirty.sleep.clear(); dirty.days.clear(); dirty.meta = false;
     flushing = true;
+    let ended;
+    inflight = new Promise(r => { ended = r; });
+    let ok = false;
     setState('syncing');
     try {
       for (let i = 0; i < ops.length; i += 400) {   // Firestore batches hold up to 500 writes
@@ -384,6 +585,7 @@ const Sync = (() => {
         await b.commit();
       }
       lastSynced = now();
+      ok = true;
       setState('synced');
     } catch (e) {
       // put everything back so it's retried
@@ -393,7 +595,12 @@ const Sync = (() => {
       setTimeout(() => schedule(2000), 30000);
     } finally {
       flushing = false;
+      inflight = null;
+      ended();
     }
+    // edits stamped while this batch was in flight had their flush skipped: send them now
+    // (after a failure the 30 s retry above covers them)
+    if (ok && hasDirty()) schedule(2000);
   }
 
   // Delete study history for every device (used by "Clear study history")
@@ -425,6 +632,7 @@ const Sync = (() => {
     setState('syncing');
     try {
       clearTimeout(flushTimer); flushTimer = null;
+      clearTimeout(retryTimer); retryTimer = null;
       unsubs.forEach(f => f()); unsubs = [];   // stop listening first, so the deletions don't touch this device
       if (typeof Push !== 'undefined') await Push.forget();
       if (typeof ClaudeStatus !== 'undefined') ClaudeStatus.onAuth(null, null);   // stop reading the robot doc
@@ -532,15 +740,20 @@ const Sync = (() => {
   // ---------------------------------------------------------------- start
   function start() {
     primePrev();
+    pruneTombs();
     renderSyncPanel();
     if (read(LS.enabled, false)) loadSdk().catch(() => {});   // was signed in before
-    window.addEventListener('online', () => { if (user) { queueAll(); schedule(1000); } });
+    window.addEventListener('online', () => {
+      if (!user) return;
+      if (retryTimer) listen();   // listeners failed while offline: don't wait out the backoff
+      queueAll(); schedule(1000);
+    });
     document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
     window.addEventListener('pagehide', () => flush());
   }
 
   return {
-    start, stamp, stampMeta, mergedDay, allDayKeys, clearDays, signIn, signOut, flush, deleteCloudData,
+    start, stamp, stampMeta, mergedDay, allDayKeys, clearDays, signIn, signOut, flush, deleteCloudData, restoreBackup,
     prefetch: () => loadSdk().catch(() => {}),
     get signedIn() { return !!user; },
     get deviceId() { return deviceId; },

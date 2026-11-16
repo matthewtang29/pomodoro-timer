@@ -247,9 +247,23 @@ $('restoreFile').addEventListener('change', async () => {
   const file = $('restoreFile').files[0];
   $('restoreFile').value = '';
   if (!file) return;
+  let data;
   try {
-    const data = JSON.parse(await file.text());
+    data = JSON.parse(await file.text());
     if (data.app !== 'pomodoro' || !data.analytics || typeof data.analytics.days !== 'object') throw new Error('not a backup');
+  } catch (e) {
+    toast("That file isn't a Pomegranate backup");
+    return;
+  }
+  const synced = typeof Sync !== 'undefined' && Sync.signedIn;
+  const exported = new Date(data.exported || NaN);
+  const made = isNaN(exported) ? '' : ` from ${exported.toLocaleDateString()}`;
+  if (!confirm(synced
+    ? `Restore the backup${made}?\n\nYou're signed in, so it is merged, not replaced: items missing here are added back, and where an item exists in both, the newer version is kept. Nothing is deleted, here or on your other devices. Your focus goal stays as it is.`
+    : `Restore the backup${made}?\n\nThis replaces all tasks, journal entries, habits, sleep and study history on this device with the backup. Anything on this device that isn't in the backup is lost (Back up first if you want a copy).\n\nIf you sign in later, newer items from your account come back.`)) return;
+  // a restore must never look like fresh edits, or an old backup would win over newer data
+  // (see Sync.restoreBackup)
+  const replace = () => {
     store = data.analytics;
     saveStore(true);
     if (data.tasks && Array.isArray(data.tasks.items) && typeof restoreTasks === 'function') restoreTasks(data.tasks);
@@ -257,10 +271,13 @@ $('restoreFile').addEventListener('change', async () => {
     if (data.habits && data.habits.items && typeof restoreHabits === 'function') restoreHabits(data.habits);
     if (data.sleep && data.sleep.entries && typeof restoreSleep === 'function') restoreSleep(data.sleep);
     if (data.goal) { setFocusGoal(Number(data.goal)); $('goalSelect').value = String(data.goal); }
+  };
+  try {
+    const n = typeof Sync !== 'undefined' ? Sync.restoreBackup(data, replace) : (replace(), null);
     refreshView();
-    toast('Backup restored');
+    toast(n ? `Backup merged: ${n.added} added, ${n.updated} updated, ${n.kept} already newer here` : 'Backup restored');
   } catch (e) {
-    toast("That file isn't a Pomegranate backup");
+    toast('Restore failed: ' + (e.message || e));
   }
 });
 
