@@ -28,7 +28,7 @@
 <main>
   <a class="back" href="./">← Back to Pomegranate</a>
   <h1>Privacy policy</h1>
-  <p class="muted">Last updated November 10, 2026</p>
+  <p class="muted">Last updated November 16, 2026</p>
 
   <p>Pomegranate is a free study app made by Matthew Tang, an individual developer. This page explains what it stores, where that goes, and how you can get it back or delete it. The short version: <b>no ads, no analytics, no tracking, and nothing is sold.</b> If you never sign in, nothing leaves your device.</p>
 
@@ -36,11 +36,14 @@
   <p>Everything you enter (tasks, journal entries, habits, sleep times, focus sessions and settings) is saved only in your browser's storage on that device. It isn't sent to us or anyone else.</p>
   <p>If you connect a USB Pomodoro timer, the app talks to it directly over USB on your computer. That never goes online.</p>
 
+  <h2>Video and audio in the journal</h2>
+  <p>The journal can record a video (or audio-only) clip. The app turns on your camera and microphone only after you press Record, and turns them off when you press Stop, leave the Journal or the app goes into the background. Clips are stored only on the device that recorded them, in the browser's storage, and are never uploaded: not to us, not to Google and not to anyone else. If you sign in to sync, only a clip's date and time, length, file size and format, and which of your devices holds it are synced with that day's journal entry, so your other devices can show that a clip exists. Backups made with Back up contain those details but not the clips; use Download on a clip to keep a copy. Deleting a clip, or its journal entry, removes it from the device.</p>
+
   <h2>If you sign in with Google to sync</h2>
   <p>Signing in is optional. It copies your data to a cloud database so your devices stay in sync. We use Google Firebase (Firebase Authentication and Cloud Firestore) for this, and Google handles it on our behalf. When you sign in:</p>
   <ul>
     <li><b>From your Google account:</b> your name, email address, profile picture link and a Google user ID. We use them only to sign you in and show which account is connected.</li>
-    <li><b>What gets synced:</b> your tasks, journal entries, habits, sleep log, focus history, daily focus goal and the state of a running timer.</li>
+    <li><b>What gets synced:</b> your tasks, journal entries (with the details of any video clips, but not the clips themselves), habits, sleep log, focus history, daily focus goal and the state of a running timer.</li>
     <li><b>About each device:</b> a random device ID, a label such as "Windows · Chrome", and when it last synced, so focus time from each device can be added up correctly.</li>
   </ul>
   <p>Your data is stored by Google in the United States. Firebase's database rules let only your signed-in account read or write your data. Your data is encrypted in transit and at rest by Google, but it isn't end-to-end encrypted, so don't put anything in your journal you wouldn't want stored on a cloud service.</p>

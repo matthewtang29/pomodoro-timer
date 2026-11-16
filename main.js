@@ -9,6 +9,7 @@ function showTab(name) {
   document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   editingId = null;
   if (name !== 'journal' && typeof flushJournal === 'function') flushJournal();   // keep unsaved journal text
+  if (name !== 'journal' && typeof JournalVideo !== 'undefined') JournalVideo.stop('tab');   // and save a recording
   if (name === 'today') renderDashboard();   // dashboard.js
   if (name === 'tasks') { renderProjectLists(); renderTasks(); }
   if (name === 'calendar') renderCalendar();

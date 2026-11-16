@@ -69,6 +69,9 @@
     } });
     Object.defineProperty(w.navigator, 'locks', { configurable: true, value: { request: (n, o, cb) => Promise.resolve(cb({})) } });
     w.BroadcastChannel = class { postMessage() {} close() {} };
+    // journal video clips (journalvideo.js) go to a throwaway database, never the app's real one
+    const idbOpen = w.indexedDB.open.bind(w.indexedDB);
+    w.indexedDB.open = (n, v) => idbOpen(n === 'pomegranate-media' ? 'pomegranate-media-synctest' : n, v);
     w.history.replaceState = () => {};
     w.confirm = msg => { (w.__confirms = w.__confirms || []).push(msg); return true; };
     w.localStorage.setItem('pomodoro-sync-tombstones', JSON.stringify({ tasks: { oldTomb: NOW - 100 * DAY, newTomb: NOW - 10 * DAY }, journal: {} }));
@@ -234,6 +237,52 @@
     check('remote change applied', local('t1').title === 'remote edit', local('t1'));
     check('local change kept and uploaded', local('t3').focusSec === 99 && cloud('users/A/tasks/t3').focusSec === 99, cloud('users/A/tasks/t3'));
 
+    group('G: journal video clips when a newer copy arrives');
+    // A clip's video is only on the device that recorded it; the entry is last-write-wins as a
+    // whole doc, so a newer copy from a device that hadn't seen the clip must not drop it here.
+    const jcloud = k => cloud('users/A/journal/' + k) || {};
+    const jlocal = k => g('journal').entries[k];
+    const clip = (id, device, at) => ({ id, at, dur: 12000, size: 900000, mime: 'video/webm', device, devName: 'Test' });
+    g(`journal.entries['2026-03-01'] = { rating: null, text: '', updated: Date.now(), videos: [${JSON.stringify(clip('c1', dev, NOW - 5000))}] }; saveJournal();`);
+    await wait(3500);
+    check('(setup) clip details uploaded with the entry', (jcloud('2026-03-01').videos || []).some(v => v.id === 'c1'), jcloud('2026-03-01'));
+    // another device saved the entry from a copy without the clip, later
+    let ru = Date.now() + 10;
+    other.set('users/A/journal/2026-03-01', { rating: 6, text: 'written on the phone', updated: ru, u: ru });
+    await wait(4000);
+    check('remote edit applied', jlocal('2026-03-01').text === 'written on the phone' && jlocal('2026-03-01').rating === 6, jlocal('2026-03-01'));
+    check("this device's clip kept", (jlocal('2026-03-01').videos || []).map(v => v.id).join() === 'c1', jlocal('2026-03-01').videos);
+    check('merged entry sent back up with the clip and the edit', (jcloud('2026-03-01').videos || []).some(v => v.id === 'c1') && jcloud('2026-03-01').text === 'written on the phone' && jcloud('2026-03-01').u > ru, jcloud('2026-03-01'));
+
+    // a copy with another device's clip and this one's: both kept, nothing sent back
+    ru = Date.now() + 10;
+    let markG = FS.writes.length;
+    other.set('users/A/journal/2026-03-01', { rating: 6, text: 'written on the phone', updated: ru, u: ru, videos: [clip('c1', dev, NOW - 5000), clip('o1', 'otherdev', NOW - 1000)] });
+    await wait(4000);
+    check("other device's clip added", (jlocal('2026-03-01').videos || []).map(v => v.id).join() === 'c1,o1', jlocal('2026-03-01').videos);
+    check('nothing re-uploaded when nothing was lost', writesSince(markG, x => x.pending && /journal\/2026-03-01/.test(x.path)).length === 0, writesSince(markG, x => x.pending));
+    check('…and it shows as recorded on another device', (() => { g("showTab('journal'); switchDate('2026-03-01')"); return /Recorded on another device/.test($('jvClips').textContent); })(), $('jvClips').textContent);
+    g("switchDate(dayKey(Date.now())); showTab('timer')");
+
+    // a stale copy still listing a clip this device deleted (no longer holds): not brought back
+    g(`(() => { const e = journal.entries['2026-03-01']; e.videos = e.videos.filter(v => v.id !== 'c1'); saveJournal(); })()`);
+    await wait(3500);
+    ru = Date.now() + 10;
+    other.set('users/A/journal/2026-03-01', { rating: 6, text: 'stale copy', updated: ru, u: ru, videos: [clip('c1', dev, NOW - 5000), clip('o1', 'otherdev', NOW - 1000)] });
+    await wait(4000);
+    check('a clip deleted here is not brought back', (jlocal('2026-03-01').videos || []).map(v => v.id).join() === 'o1' && jlocal('2026-03-01').text === 'stale copy', jlocal('2026-03-01'));
+    check('…and the cloud copy is corrected', (jcloud('2026-03-01').videos || []).map(v => v.id).join() === 'o1', jcloud('2026-03-01').videos);
+
+    // deleted on another device while this device holds clips for it: kept with just its clips
+    g(`journal.entries['2026-03-02'] = { rating: 3, text: 'x', updated: Date.now(), videos: [${JSON.stringify(clip('c2', dev, NOW - 4000))}] }; saveJournal();`);
+    await wait(3500);
+    ru = Date.now() + 10;
+    other.set('users/A/journal/2026-03-02', { deleted: true, u: ru });
+    await wait(4000);
+    check("entry deleted elsewhere keeps this device's clips", !!jlocal('2026-03-02') && (jlocal('2026-03-02').videos || []).map(v => v.id).join() === 'c2' && !jlocal('2026-03-02').text, jlocal('2026-03-02'));
+    check('…and is sent back up', !jcloud('2026-03-02').deleted && (jcloud('2026-03-02').videos || []).some(v => v.id === 'c2'), jcloud('2026-03-02'));
+    check('backup includes clip details', (() => { w.eval('window.__dl = download; download = (n, t) => { window.__bk = t; }'); $('backupBtn').click(); w.eval('download = window.__dl'); const e = JSON.parse(w.__bk).journal.entries['2026-03-02']; return !!e && e.videos[0].id === 'c2'; })());
+
     group('D: a listener error');
     failListeners();
     await wait(100);
@@ -328,6 +377,7 @@
     } catch (e) {
       errors.push('test crashed: ' + (e.stack || e));
     }
+    indexedDB.deleteDatabase('pomegranate-media-synctest');
     group('Errors in the app during the run');
     check('none', errors.length === 0, errors);
     const s = document.getElementById('summary');

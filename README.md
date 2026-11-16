@@ -9,7 +9,7 @@ A study planner and Pomodoro timer web app. The timer runs in the app itself, on
 - **Timer alerts:** a notification on every device when a focus block, break, or session ends, even when the app is closed (via a small cloud function), plus an option to keep the screen awake during sessions
 - **Tasks tab:** a Todoist-style task list with natural-language quick add (`Lab report fri !high d3 #ECE140`, `Gym every mon`), priorities, easy / medium / hard difficulty, projects, repeating tasks, and subtasks you can tick off on the Tasks tab, in the Calendar, or under the timer while you focus
 - **Calendar tab:** month view of tasks due, each day's productivity score, hours slept, and your day rating (show both, productivity, or day rating)
-- **Journal tab:** write about your day and rate it out of 10 (a single number or a range such as 4–7; the rating is optional, so a day can be just notes). Ratings color the calendar (1–3 red, 4–5 orange, 6–8 yellow, 9–10 green); a range counts as its midpoint in the averages and unrated days are left out. Kept separate from the productivity score
+- **Journal tab:** write about your day and rate it out of 10 (a single number or a range such as 4–7; the rating is optional, so a day can be just notes). Ratings color the calendar (1–3 red, 4–5 orange, 6–8 yellow, 9–10 green); a range counts as its midpoint in the averages and unrated days are left out. Kept separate from the productivity score. **Video journal:** press **Record video** under Notes, talk to the camera, press **Stop** and the clip is saved to that day (no file picker, no upload). Several clips a day; each one plays in the entry, can be downloaded (`journal-2026-11-16-1.mp4`) and deleted with Undo. No camera, or camera blocked? It offers audio only. Clips are stored only on the device that recorded them (IndexedDB), MP4 where the browser can record it (Safari, recent Chrome) and WebM otherwise, at about 8 MB a minute, up to 15 minutes each. A recording stops and saves itself when you leave the Journal, change the date or the app goes into the background, and one cut off by a crash or reload is recovered on the next start. Only each clip's date, length and size sync with the entry; other devices show it as recorded on another device
 - **Habits tab:** a monthly grid, one row per habit; click a box to cycle empty → ✓ → ✕
 - **Sleep tab:** bedtime, wake time and quality (1–5) for each night, filed under the morning you woke up
 - **Desk board** (Chrome or Edge on a computer): press **Connect board** to link the USB board over Web Serial. It is a display only: it shows your top dated tasks and the status of Claude Code jobs and plan usage. The timer always runs in the app
@@ -25,7 +25,7 @@ Open the GitHub Pages link. Sessions run on the built-in timer, so nothing needs
 
 **Global hotkeys (Windows):** with the app installed from Chrome or Edge, run `powershell -ExecutionPolicy Bypass -File hotkeys\install-hotkeys.ps1`. It adds Start Menu shortcuts so `Ctrl+Alt+Space` (add a task) and `Ctrl+Alt+0` (start a 25/5 session) work even when the app is closed. Add `-Uninstall` to remove them.
 
-**Your data:** tasks, journal, habits, sleep, study history and settings are stored in the browser first, so the app works offline. Sign in from ⚙ Settings to sync them across devices, or use **Back up** / **Restore** there to move them by hand (**Export CSV** gives a per-day summary). If the browser can't save (storage full or blocked), a warning banner appears and Settings shows how much storage is used.
+**Your data:** tasks, journal, habits, sleep, study history and settings are stored in the browser first, so the app works offline. Sign in from ⚙ Settings to sync them across devices, or use **Back up** / **Restore** there to move them by hand (**Export CSV** gives a per-day summary). If the browser can't save (storage full or blocked), a warning banner appears and Settings shows how much storage is used. Backups include journal clip details but not the videos: download clips you want to keep. Restoring a backup never deletes clips on the device; they go back on their day.
 - **Restore** while signed out replaces what is on this device with the backup. While signed in it merges instead: items missing here are added back, the newer version of anything in both is kept, nothing is deleted here or on your other devices, and your focus goal is left alone. It asks first and says which will happen.
 - **Switching accounts:** if you sign in as a different Google account than the one this device last synced with, you are asked whether to **merge** this device's data into the new account, **replace** this device's data with the new account's (the other account keeps its cloud copy), or sign out (Esc also signs out). Nothing is uploaded until you choose.
 
@@ -55,7 +55,7 @@ The built-in timer (`localtimer.js`) is a software copy of the original Arduino 
 The desk board gets the top 4 dated, unfinished tasks (`boardsync.js`) and, when you're signed in, Claude Code job status and usage (`claudestatus.js`). The Claude Code status is read from one Firestore document that a script on my laptop writes; the app only reads it.
 
 ## Cloud sync
-Sync uses Firebase Authentication (Google sign-in) and Cloud Firestore. Tasks, journal entries, habits and sleep nights are stored one per document and the newest change wins; deletions sync as markers. Study history is stored per device and added together for display, so two devices studying on the same day never overwrite each other (an identical copy, such as the same backup restored on two devices, is counted once).
+Sync uses Firebase Authentication (Google sign-in) and Cloud Firestore. Tasks, journal entries, habits and sleep nights are stored one per document and the newest change wins; deletions sync as markers. A journal entry's video clips are the exception: the device that holds a clip keeps it on the entry when a newer copy without it arrives, and sends the merged entry back up. Study history is stored per device and added together for display, so two devices studying on the same day never overwrite each other (an identical copy, such as the same backup restored on two devices, is counted once).
 
 **Synced sessions:** the running session is one shared document holding the timer's state as absolute times (when this phase ends), so every device counts down on its own clock without constant updates. Devices only write when you start, pause, resume, exit or continue, and the newest change wins. Only the device that started a session records it.
 
@@ -67,7 +67,8 @@ Firestore security rules: see [cloud/firestore.rules](cloud/firestore.rules). Ea
 No dependencies and no build: open a page from a local server (for example `python -m http.server`) or GitHub Pages and read the results. None of these pages is part of the installed app.
 - `tests.html`: the desk-board logic (`boardsync.js`, `claudestatus.js`).
 - `logic-tests.html`: the quick-add parser and repeats (`tasks.js`), session and daily scores (`score.js`), merged study days (`sync.js`), journal averages (`journal.js`), and a check that the built-in timer and the cloud function's alert scheduler follow the same phase rules. It runs the real app in a hidden frame with its own in-memory storage and a pinned clock.
-- `sync-tests.html`: cloud sync, backup restore and the account-switch prompt, in a hidden frame against an in-memory fake of Firebase (nothing is sent anywhere). Takes about a minute and a half.
+- `sync-tests.html`: cloud sync, backup restore, the account-switch prompt and keeping journal video clips when a newer copy of an entry arrives, in a hidden frame against an in-memory fake of Firebase (nothing is sent anywhere). Takes about a minute and a half.
+- `video-tests.html`: the video journal (`journalvideo.js`): really records from the camera and microphone (allow them when asked, or run Chromium with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required` for a synthetic camera), then checks saving, playback and seeking, recovery after a crash or reload, stopping on leaving the tab, delete and Undo, restore, audio only, blocked permissions, full storage and browsers without MediaRecorder. Uses its own test database, never the app's clips. About a minute and a half.
 - `cloud/functions/test.js`: plain Node checks of the cloud function (`node test.js` from `cloud/functions`; not deployed). `logic-tests.html` also loads that file's `upcomingAlerts` in the browser for the timer check.
 
 ## Project structure
@@ -82,6 +83,7 @@ dashboard.js                    Today tab
 tasks.js                        Tasks tab and quick-add parser
 calendar.js                     Calendar tab
 journal.js                      Journal tab (day ratings)
+journalvideo.js                 Journal video and audio clips (recording, IndexedDB storage, recovery)
 habits.js                       Habits tab
 sleep.js                        Sleep tab
 boardsync.js                    Task list for the desk board
@@ -94,7 +96,8 @@ shortcuts.js                    Keyboard shortcuts and the quick-add box
 main.js                         Tabs, install-as-app, start-up
 manifest.webmanifest, sw.js     Installable app (PWA) setup
 tests.html, logic-tests.html,
-sync-tests.html                 Test pages (see Tests)
+sync-tests.html,
+video-tests.html                Test pages (see Tests)
 hotkeys/                        Windows global hotkeys (install-hotkeys.ps1)
 icons/                          App icons and robot mascots (icons/bots/)
 fonts/                          Inter (SIL Open Font License), stored locally so the app works offline

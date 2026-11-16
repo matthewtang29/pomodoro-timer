@@ -75,6 +75,9 @@
     } });
     Object.defineProperty(w.navigator, 'locks', { configurable: true, value: { request: (n, o, cb) => Promise.resolve(cb({})) } });
     w.BroadcastChannel = class { postMessage() {} close() {} };
+    // journal video clips (journalvideo.js) go to a throwaway database, never the app's real one
+    const idbOpen = w.indexedDB.open.bind(w.indexedDB);
+    w.indexedDB.open = (n, v) => idbOpen(n === 'pomegranate-media' ? 'pomegranate-media-logictest' : n, v);
     w.history.replaceState = () => {};
     w.confirm = () => true;
 
@@ -468,6 +471,7 @@
     } catch (e) {
       errors.push('test crashed: ' + (e.stack || e));
     }
+    indexedDB.deleteDatabase('pomegranate-media-logictest');
     group('Errors in the app during the run');
     ok('none', errors.length === 0, errors);
     const s = document.getElementById('summary');

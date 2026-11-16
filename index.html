@@ -22,7 +22,7 @@
 <link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.16d">
+<link rel="stylesheet" href="style.css?v=2026.11.16e">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -120,7 +120,7 @@
           <p class="sync-note">Used by the productivity score on the Timer and Calendar.</p>
           <hr class="tm-sep">
           <h3>Your data</h3>
-          <p class="sync-note">Everything is saved in this browser. Back up / Restore moves it to another browser or the installed app.</p>
+          <p class="sync-note">Everything is saved in this browser. Back up / Restore moves it to another browser or the installed app. Journal video clips are not in the backup (only their date and length are): use Download on each clip to keep a copy.</p>
           <div class="tm-btns">
             <button id="backupBtn" type="button" class="small">Back up</button>
             <button id="restoreBtn" type="button" class="small">Restore</button>
@@ -422,6 +422,23 @@
         <span>Notes</span>
         <textarea id="jText" rows="9" placeholder="What happened today? What went well, what didn't?"></textarea>
       </label>
+      <div class="j-video" id="jVideo" hidden>
+        <div class="jv-idle" id="jvRecIdle">
+          <button type="button" class="small" id="jvRecord"><span class="jv-rdot" aria-hidden="true">●</span> Record video</button>
+          <span class="jv-total" id="jvTotal"></span>
+        </div>
+        <div class="jv-rec" id="jvRec" hidden>
+          <video id="jvPreview" class="jv-preview" muted playsinline autoplay></video>
+          <div class="jv-rec-bar">
+            <span class="jv-dot" aria-hidden="true"></span>
+            <span id="jvRecLabel">Recording</span>
+            <span class="jv-time" id="jvTime" aria-live="off"></span>
+          </div>
+          <button type="button" class="primary jv-stop" id="jvStop">■ Stop and save</button>
+        </div>
+        <div class="jv-note" id="jvNote" role="status" hidden></div>
+        <div class="jv-clips" id="jvClips"></div>
+      </div>
       <div class="j-actions">
         <span class="j-status" id="jStatus" aria-live="polite"></span>
         <button type="button" id="jDelete" class="small danger" hidden>Delete</button>
@@ -529,24 +546,25 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="boardsync.js?v=2026.11.16d"></script>
-<script src="claudestatus.js?v=2026.11.16d"></script>
-<script src="app.js?v=2026.11.16d"></script>
-<script src="localtimer.js?v=2026.11.16d"></script>
-<script src="notify.js?v=2026.11.16d"></script>
-<script src="score.js?v=2026.11.16d"></script>
-<script src="analytics.js?v=2026.11.16d"></script>
-<script src="tasks.js?v=2026.11.16d"></script>
-<script src="calendar.js?v=2026.11.16d"></script>
-<script src="journal.js?v=2026.11.16d"></script>
-<script src="habits.js?v=2026.11.16d"></script>
-<script src="sleep.js?v=2026.11.16d"></script>
-<script src="dashboard.js?v=2026.11.16d"></script>
-<script src="sync.js?v=2026.11.16d"></script>
-<script src="livesync.js?v=2026.11.16d"></script>
-<script src="push.js?v=2026.11.16d"></script>
-<script src="theme.js?v=2026.11.16d"></script>
-<script src="shortcuts.js?v=2026.11.16d"></script>
-<script src="main.js?v=2026.11.16d"></script>
+<script src="boardsync.js?v=2026.11.16e"></script>
+<script src="claudestatus.js?v=2026.11.16e"></script>
+<script src="app.js?v=2026.11.16e"></script>
+<script src="localtimer.js?v=2026.11.16e"></script>
+<script src="notify.js?v=2026.11.16e"></script>
+<script src="score.js?v=2026.11.16e"></script>
+<script src="analytics.js?v=2026.11.16e"></script>
+<script src="tasks.js?v=2026.11.16e"></script>
+<script src="calendar.js?v=2026.11.16e"></script>
+<script src="journal.js?v=2026.11.16e"></script>
+<script src="journalvideo.js?v=2026.11.16e"></script>
+<script src="habits.js?v=2026.11.16e"></script>
+<script src="sleep.js?v=2026.11.16e"></script>
+<script src="dashboard.js?v=2026.11.16e"></script>
+<script src="sync.js?v=2026.11.16e"></script>
+<script src="livesync.js?v=2026.11.16e"></script>
+<script src="push.js?v=2026.11.16e"></script>
+<script src="theme.js?v=2026.11.16e"></script>
+<script src="shortcuts.js?v=2026.11.16e"></script>
+<script src="main.js?v=2026.11.16e"></script>
 </body>
 </html>

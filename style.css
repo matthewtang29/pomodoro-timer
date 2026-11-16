@@ -612,6 +612,41 @@ pre#log {
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 
+.j-entry-badges { display: inline-flex; align-items: center; gap: 8px; }
+.j-cam { font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.j-day b { position: relative; }
+.j-day-cam { position: absolute; right: -3px; top: -6px; font-size: 10px; font-style: normal; line-height: 1; }
+.day-journal-clips { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.c-cam { font-size: 11px; line-height: 1; }
+
+/* video journal (journalvideo.js) */
+.j-video { display: flex; flex-direction: column; gap: 10px; }
+.jv-idle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.jv-rdot { color: var(--down); }
+.jv-total { font-size: 12px; color: var(--faint); }
+.jv-rec { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+/* mirrored, like a mirror; the saved clip is not */
+.jv-preview { width: 100%; max-height: 60vh; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: #000; transform: scaleX(-1); }
+.jv-rec-bar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.jv-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--down); animation: jv-blink 1.2s steps(2, start) infinite; }
+@keyframes jv-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .jv-dot { animation: none; } }
+.jv-time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+.jv-stop { height: 52px; font-size: 16px; width: 100%; }
+.jv-note { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--peach); border-radius: 8px; font-size: 13px; color: var(--text-2); }
+.jv-note p { margin: 0; }
+.jv-note-btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.jv-clips { display: flex; flex-direction: column; gap: 10px; }
+.jv-clip { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.jv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.jv-head b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.jv-meta { color: var(--muted); }
+.jv-btns { margin-left: auto; display: flex; gap: 6px; }
+.jv-player { width: 100%; max-height: 60vh; border-radius: 6px; }
+video.jv-player { background: #000; }
+.jv-clip.away { border-style: dashed; }
+.jv-away { margin: 0; font-size: 12px; color: var(--muted); }
+
 /* ======================================================= analytics */
 .score-card { display: flex; gap: 40px; flex-wrap: wrap; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
 .score-hero { flex: none; display: flex; flex-direction: column; gap: 4px; }

@@ -52,9 +52,24 @@ function ratingLo(e) { return isRated(e) ? e.rating : null; }
 function ratingHi(e) { return !isRated(e) ? null : e.ratingHigh > e.rating ? e.ratingHigh : e.rating; }
 function ratingMid(e) { return isRated(e) ? (ratingLo(e) + ratingHi(e)) / 2 : null; }
 function ratingText(lo, hi) { return lo == null ? '' : hi && hi !== lo ? `${lo}–${hi}` : String(lo); }
-// worth keeping: a rating, some text, or (later) videos
+// worth keeping: a rating, some text, or video clips (journalvideo.js)
 function entryHasContent(e) {
   return isRated(e) || (typeof e.text === 'string' && e.text.trim() !== '') || (Array.isArray(e.videos) && e.videos.length > 0);
+}
+
+// video clips on a day: { n, dur } or null (the clips themselves live in journalvideo.js)
+function entryClips(e) {
+  const v = e && Array.isArray(e.videos) ? e.videos.filter(x => x && x.id) : [];
+  return v.length ? { n: v.length, dur: v.reduce((a, x) => a + (x.dur || 0), 0) } : null;
+}
+function fmtClipLen(ms) { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+// "🎥 2:31" marker for lists and the calendar
+function clipMarker(e, cls) {
+  const c = entryClips(e);
+  if (!c) return null;
+  const m = el('span', cls || 'j-cam', `🎥 ${fmtClipLen(c.dur)}`);
+  m.title = `${c.n} video clip${c.n === 1 ? '' : 's'}, ${fmtClipLen(c.dur)} in all`;
+  return m;
 }
 
 // Puts the range's colors on an element: class m-<low band> sets --m, and --m2 is the high end's color.
@@ -155,6 +170,7 @@ function loadEditor(k) {
   jDirty = false;
   setStatus(e ? `Saved ${fmtSavedTime(e.updated)}` : '');
   paintRating();
+  if (typeof JournalVideo !== 'undefined') JournalVideo.renderClips();
 }
 
 function fmtSavedTime(ts) {
@@ -214,10 +230,14 @@ function deleteEntry() {
   if (!old) return;
   delete journal.entries[k];
   saveJournal();
+  // its clips go too, once the Undo runs out
+  const undoClips = typeof JournalVideo !== 'undefined' ? JournalVideo.trash(old.videos) : () => {};
   loadEditor(k);
   renderJournalLists();
-  toast('Entry deleted', 'Undo', () => {
+  const c = entryClips(old);
+  toast(c ? `Entry and ${c.n} clip${c.n === 1 ? '' : 's'} deleted` : 'Entry deleted', 'Undo', () => {
     journal.entries[k] = old;
+    undoClips();
     saveJournal();
     if (jDate === k) loadEditor(k);
     renderJournalLists();
@@ -228,6 +248,7 @@ function deleteEntry() {
 function switchDate(k) {
   if (k === jDate) return;
   flushJournal();
+  if (typeof JournalVideo !== 'undefined') JournalVideo.stop('date');   // saved to the day it was recorded on
   loadEditor(k);
 }
 
@@ -252,10 +273,15 @@ function renderJournalLists() {
     if (e) paintMood(cell, ratingLo(e), ratingHi(e));
     cell.type = 'button';
     const txt = ratingText(ratingLo(e), ratingHi(e));
-    const what = !e ? 'no entry' : isRated(e) ? `rated ${txt} out of 10` : 'written, not rated';
-    cell.append(el('b', null, !e ? '–' : isRated(e) ? txt : '✎'), el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
-    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${what}`);
-    cell.title = `${fmtDay(k, today)} · ${isRated(e) ? `${txt}/10` : what}`;
+    const clips = entryClips(e);
+    const written = e && typeof e.text === 'string' && e.text.trim();
+    const what = !e ? 'no entry' : isRated(e) ? `rated ${txt} out of 10` : written ? 'written, not rated' : 'video only, not rated';
+    const vid = clips ? `, ${clips.n} video clip${clips.n === 1 ? '' : 's'} (${fmtClipLen(clips.dur)})` : '';
+    const face = el('b', null, !e ? '–' : isRated(e) ? txt : written ? '✎' : '🎥');
+    if (clips && (isRated(e) || written)) face.append(el('i', 'j-day-cam', '🎥'));
+    cell.append(face, el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
+    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${what}${vid}`);
+    cell.title = `${fmtDay(k, today)} · ${isRated(e) ? `${txt}/10` : what}${vid}`;
     cell.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     strip.append(cell);
     if (isRated(e)) vals.push(ratingMid(e));
@@ -283,8 +309,12 @@ function renderJournalLists() {
     const item = paintMood(el('button', 'j-entry' + (k === jDate ? ' sel' : '')), ratingLo(e), ratingHi(e));
     item.type = 'button';
     const head = el('div', 'j-entry-head');
-    head.append(el('b', null, fmtDay(k, today)), moodBadge(ratingLo(e), null, ratingHi(e)));
-    item.append(head, el('p', 'j-entry-text', e.text || 'No notes'));
+    const right = el('span', 'j-entry-badges');
+    const cam = clipMarker(e);
+    if (cam) right.append(cam);
+    right.append(moodBadge(ratingLo(e), null, ratingHi(e)));
+    head.append(el('b', null, fmtDay(k, today)), right);
+    item.append(head, el('p', 'j-entry-text', e.text || (entryClips(e) ? 'Video only' : 'No notes')));
     item.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     list.append(item);
   });

@@ -58,12 +58,15 @@ function renderCalendar() {
     }
     if (sc) badges.append(scoreBadge(sc.score, 'c-score'));
     top.append(badges);
+    const cam = je ? clipMarker(je, 'c-cam') : null;
+    if (cam) cam.textContent = '🎥';   // the length is in the day panel; cells are small
     cell.append(top);
 
     // hours slept the night before (filed under the morning you woke up)
     const se = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
     const slept = se ? sleepMinutes(se) : 0;
     if (se) cell.append(el('div', 'c-sleep ' + sleepCls(slept), '😴 ' + fmtSleepShort(slept)));
+    if (cam) badges.prepend(cam);
 
     const due = tasksDueOn(k);
     due.slice(0, 3).forEach(t => {
@@ -82,6 +85,8 @@ function renderCalendar() {
 
     const label = [d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })];
     if (je) label.push(isRated(je) ? `day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10` : 'journal written, not rated');
+    const jc = je ? entryClips(je) : null;
+    if (jc) label.push(`${jc.n} video clip${jc.n === 1 ? '' : 's'}, ${fmtClipLen(jc.dur)}`);
     if (sc) label.push(`productivity score ${sc.score}`);
     if (se) label.push(`slept ${fmtSleep(slept)}`);
     if (due.length) label.push(`${due.length} task${due.length > 1 ? 's' : ''} due`);
@@ -132,6 +137,8 @@ function renderCalDay() {
     jh.append(jbtn);
     jbox.append(jh);
     if (je && je.text) jbox.append(el('p', 'day-journal-text', je.text));
+    const jc = je ? entryClips(je) : null;
+    if (jc) jbox.append(el('p', 'day-journal-clips', `🎥 ${jc.n} video clip${jc.n === 1 ? '' : 's'} · ${fmtClipLen(jc.dur)}`));
     box.append(jbox);
   }
 

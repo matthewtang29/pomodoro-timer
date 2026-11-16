@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pomegranate video journal tests</title>
+<!-- Tests for journalvideo.js (the video journal). Runs the real app in a frame and really
+     records from the camera and microphone, so the browser asks for them (or use Chromium's
+     --use-fake-device-for-media-stream --use-fake-ui-for-media-stream flags for a synthetic
+     camera, plus --autoplay-policy=no-user-gesture-required). The frame gets its own in-memory
+     localStorage (kept across the frame's reloads) and its own IndexedDB database
+     ('pomegranate-media-test', deleted at the end), so the app's real data and clips are left
+     alone. Open it from a local server; it takes about a minute and a half. -->
+<style>
+  :root { --bg: #fafaf7; --text: #1b1b19; --muted: #67655f; --ok: #3f7a4b; --bad: #b4422e; --line: #e9e7e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151715; --text: #e8e6e1; --muted: #a19e98; --ok: #9cc7a3; --bad: #f2aa8a; --line: #2c302d; } }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  #summary { margin: 0 0 20px; font-weight: 600; }
+  h2 { font-size: 14px; margin: 20px 0 6px; color: var(--muted); }
+  li { list-style: none; padding: 4px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  ul { margin: 0; padding: 0; }
+  .ok::before { content: "✓ "; color: var(--ok); }
+  .bad { color: var(--bad); } .bad::before { content: "✕ "; }
+  iframe { position: absolute; left: -9999px; width: 1100px; height: 800px; border: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Video journal tests</h1>
+  <p id="summary">Running… (about a minute and a half; allow the camera and microphone if asked)</p>
+  <div id="out"></div>
+</main>
+<script>
+(() => {
+  const TEST_DB = 'pomegranate-media-test';
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0, list = null;
+  function group(name) {
+    const h = document.createElement('h2'); h.textContent = name;
+    list = document.createElement('ul');
+    out.append(h, list);
+  }
+  function check(name, ok, info) {
+    const li = document.createElement('li');
+    li.className = ok ? 'ok' : 'bad';
+    li.textContent = name + (ok || info === undefined ? '' : '  →  ' + JSON.stringify(info));
+    list.append(li);
+    ok ? pass++ : fail++;
+  }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  async function until(fn, ms = 8000) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { try { if (await fn()) return true; } catch (e) {} await wait(100); }
+    return false;
+  }
+
+  // ---------------------------------------------------------------- stand-ins inside the frame
+  const MEM = {};   // the frame's localStorage, kept across its reloads
+  let mode = {};    // per-load switches: { noRecorder }
+  window.installFakes = w => {
+    const storage = {
+      getItem: k => (k in MEM ? MEM[k] : null), setItem: (k, v) => { MEM[k] = String(v); },
+      removeItem: k => { delete MEM[k]; }, clear: () => { for (const k in MEM) delete MEM[k]; },
+      key: i => Object.keys(MEM)[i] ?? null, get length() { return Object.keys(MEM).length; },
+    };
+    Object.defineProperty(w, 'localStorage', { value: storage, configurable: true });
+    Object.defineProperty(w.navigator, 'serviceWorker', { configurable: true, value: {
+      controller: null, ready: new Promise(() => {}), addEventListener() {},
+      register: () => Promise.resolve({ update() {} }), getRegistration: () => Promise.resolve(undefined),
+    } });
+    // the app's one-window lock: always granted here (the real app may be open next to this page)
+    const realLocks = w.navigator.locks;
+    Object.defineProperty(w.navigator, 'locks', { configurable: true, value: {
+      request: (n, o, cb) => n === 'pomegranate-window' ? Promise.resolve((cb || o)({})) : realLocks.request(n, o, cb),
+    } });
+    w.BroadcastChannel = class { postMessage() {} close() {} };
+    w.history.replaceState = () => {};
+    w.confirm = () => true;
+    const open = w.indexedDB.open.bind(w.indexedDB);
+    w.indexedDB.open = (name, v) => open(name === 'pomegranate-media' ? TEST_DB : name, v);
+    if (mode.noRecorder) { delete w.MediaRecorder; w.MediaRecorder = undefined; }
+  };
+
+  let frame, w;
+  async function load() {
+    const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+    if (frame) frame.remove();
+    frame = document.createElement('iframe');
+    frame.title = 'App under test';
+    frame.allow = 'camera *; microphone *; screen-wake-lock *';
+    frame.srcdoc = html.replace(/<head>/i, '<head><script>parent.installFakes(window)<\/script>');
+    const loaded = new Promise(r => frame.addEventListener('load', r, { once: true }));
+    document.body.append(frame);
+    await loaded;
+    w = frame.contentWindow;
+    w.addEventListener('error', e => errors.push(e.message + ' (' + String(e.filename).split('/').pop() + ':' + e.lineno + ')'));
+    w.addEventListener('unhandledrejection', e => errors.push('unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+    await wait(1200);   // start-up: recovery and loading the list of clips
+  }
+  async function reload() {
+    const loaded = new Promise(r => frame.addEventListener('load', r, { once: true }));
+    w.location.reload();
+    await loaded;
+    w = frame.contentWindow;
+    w.addEventListener('error', e => errors.push(e.message + ' (' + String(e.filename).split('/').pop() + ':' + e.lineno + ')'));
+    await wait(1500);
+  }
+  const errors = [];
+
+  // IndexedDB of the frame (the test database)
+  function idb(store, fn) {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(TEST_DB);
+      r.onsuccess = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains(store)) { d.close(); return res(fn ? null : []); }
+        const t = d.transaction(store, 'readonly');
+        const q = t.objectStore(store).getAll();
+        q.onsuccess = () => { d.close(); res(q.result); };
+        q.onerror = () => { d.close(); rej(q.error); };
+      };
+      r.onerror = () => rej(r.error);
+    });
+  }
+  const videos = () => idb('videos');
+  const chunks = () => idb('chunks');
+
+  async function run() {
+    const g = expr => w.eval(expr);
+    const $ = id => w.document.getElementById(id);
+    const today = () => g('dayKey(Date.now())');
+    const clipsOn = k => { const e = g('journal').entries[k]; return e && Array.isArray(e.videos) ? e.videos : []; };
+    const toastText = () => $('toast').textContent;
+    const clickToastAction = () => { const b = $('toast').querySelector('.toast-action'); if (b) b.click(); return !!b; };
+    async function record(ms, how) {
+      $('jvRecord').click();
+      if (!await until(() => !$('jvRec').hidden, 10000)) return null;
+      const tracks = $('jvPreview').srcObject ? $('jvPreview').srcObject.getTracks() : [];
+      await wait(Math.min(ms, 3500));
+      tracks.midChunks = (await chunks()).length;
+      await wait(Math.max(0, ms - 3500));
+      if (how) await how(); else $('jvStop').click();
+      await until(() => !g('JournalVideo.recording') && $('jvRec').hidden, 10000);
+      await wait(800);
+      return tracks;
+    }
+
+    group('Set-up');
+    g("showTab('journal')");
+    await wait(300);
+    check('Record button shown', !$('jvRecord').hidden && !$('jVideo').hidden);
+
+    group('Record about 10 seconds');
+    const k0 = today();
+    const t0 = Date.now();
+    const tracks = await record(10000);
+    check('chunks saved to IndexedDB while recording (crash safety)', tracks && tracks.midChunks >= 2, [tracks && tracks.midChunks, clipsOn(k0)[0] && clipsOn(k0)[0].mime]);
+    check('camera and microphone were opened', !!tracks && tracks.some(t => t.kind === 'video') && tracks.some(t => t.kind === 'audio'), tracks && tracks.map(t => t.kind));
+    check('all tracks ended after Stop', !!tracks && tracks.length > 0 && tracks.every(t => t.readyState === 'ended'), tracks && tracks.map(t => t.readyState));
+    const meta = clipsOn(k0)[0] || {};
+    check('clip details on today\'s entry', clipsOn(k0).length === 1 && !!meta.id && meta.device === g('Sync.deviceId'), clipsOn(k0));
+    check('length measured (about 10 s)', meta.dur >= 9000 && meta.dur <= 12500, meta.dur);
+    check('format recorded: ' + meta.mime, /^video\/(mp4|webm)$/.test(meta.mime), meta.mime);
+    let vs = await videos();
+    const rec0 = vs.find(v => v.id === meta.id);
+    check('video stored in IndexedDB', !!rec0 && rec0.blob instanceof Blob, vs.map(v => v.id));
+    check('sensible size (50 KB to 3 MB for 10 s)', !!rec0 && rec0.blob.size > 50000 && rec0.blob.size < 3e6 && rec0.size === rec0.blob.size, rec0 && rec0.blob.size);
+    check('chunks removed after saving', (await chunks()).length === 0);
+    check('no video data in localStorage', !Object.values(MEM).some(v => v.length > 200000) && !JSON.stringify(MEM).includes('blob:'));
+    check('video-only entry kept (no rating, no text)', !!g('journal').entries[k0] && g('journal').entries[k0].rating == null && !g('journal').entries[k0].text);
+    check('editor enabled again', !$('jText').disabled && !$('jSave').disabled);
+    check('clip count and size shown', /1 clip on this device · /.test($('jvTotal').textContent), $('jvTotal').textContent);
+
+    group('Player');
+    const player = w.document.querySelector('#jvClips video.jv-player');
+    check('player shown with a blob URL', !!player && /^blob:/.test(player.src), player && player.src);
+    const durOk = await until(() => Number.isFinite(player.duration) && player.duration > 8, 8000);
+    check('player knows the length (seekable)', durOk, player && player.duration);
+    if (player) {
+      player.muted = true;
+      const seeked = new Promise(r => player.addEventListener('seeked', r, { once: true }));
+      player.currentTime = 5;
+      await Promise.race([seeked, wait(4000)]);
+      check('seeks to 5 s', Math.abs(player.currentTime - 5) < 1, player.currentTime);
+      let played = false;
+      try { await player.play(); played = true; } catch (e) {}
+      const at = player.currentTime;
+      await wait(1200);
+      check('plays', played && player.currentTime > at, [played, at, player.currentTime]);
+      player.pause();
+    }
+    check('Download button', !![...w.document.querySelectorAll('#jvClips button')].find(b => b.textContent === 'Download'));
+
+    group('Markers in the lists and calendar');
+    check('Entries list shows a camera marker and length', /🎥 0:1\d/.test(($('jList').querySelector('.j-cam') || {}).textContent || ''), $('jList').textContent.slice(0, 120));
+    check('Entries list says "Video only"', /Video only/.test($('jList').textContent));
+    const todayCell = [...$('jStrip').querySelectorAll('.j-day')].pop();
+    check('14-day strip marks the day', /🎥/.test(todayCell.textContent) && /video clip/.test(todayCell.getAttribute('aria-label')), todayCell.getAttribute('aria-label'));
+    g("showTab('calendar')");
+    await wait(300);
+    check('calendar cell shows a camera', !!$('calView').querySelector('.cal-cell.today .c-cam'));
+    check('calendar day panel shows clips and length', /🎥 1 video clip · 0:1\d/.test(($('calDay').querySelector('.day-journal-clips') || {}).textContent || ''), $('calDay').textContent.slice(0, 160));
+    g("showTab('journal')");
+    await wait(300);
+
+    group('A video-only entry survives a reload');
+    await reload();
+    g("showTab('journal')");
+    await wait(500);
+    check('entry and clip still there', clipsOn(k0).length === 1 && clipsOn(k0)[0].id === meta.id);
+    check('player shown after reload', !!w.document.querySelector('#jvClips video.jv-player'));
+    check('shown in the Entries list', /Video only/.test($('jList').textContent));
+
+    group('Delete a clip, then Undo');
+    let del = [...w.document.querySelectorAll('#jvClips button')].find(b => b.textContent === 'Delete');
+    del.click();
+    await wait(200);
+    check('clip gone from the entry (and the empty entry removed)', !g('journal').entries[k0]);
+    check('Undo offered', /Clip deleted/.test(toastText()));
+    clickToastAction();
+    await wait(800);
+    check('Undo puts the clip back', clipsOn(k0).length === 1 && clipsOn(k0)[0].id === meta.id);
+    await wait(7000);
+    vs = await videos();
+    check('video kept after the Undo time', !!vs.find(v => v.id === meta.id && !v.trash), vs.map(v => [v.id, v.trash]));
+    check('player back', !!w.document.querySelector('#jvClips video.jv-player'));
+
+    group('Delete a clip without Undo');
+    del = [...w.document.querySelectorAll('#jvClips button')].find(b => b.textContent === 'Delete');
+    del.click();
+    await wait(500);
+    vs = await videos();
+    check('marked deleted straight away', !!vs.find(v => v.id === meta.id && v.trash));
+    await wait(7000);
+    vs = await videos();
+    check('video removed from IndexedDB after the Undo time', !vs.find(v => v.id === meta.id), vs.map(v => v.id));
+    check('count line cleared', $('jvTotal').textContent === '', $('jvTotal').textContent);
+
+    group('Leaving the Journal tab stops and saves');
+    let tr2 = await record(3000, async () => { g("showTab('timer')"); });
+    check('stopped', !g('JournalVideo.recording'));
+    check('tracks ended', !!tr2 && tr2.every(t => t.readyState === 'ended'));
+    check('clip saved on the day', clipsOn(k0).length === 1 && clipsOn(k0)[0].dur >= 2500, clipsOn(k0));
+    vs = await videos();
+    check('video stored', vs.filter(v => !v.trash).length === 1);
+    g("showTab('journal')");
+    await wait(300);
+
+    group('Changing the date stops and saves to the recording\'s day');
+    g(`journal.entries[shiftKey(dayKey(Date.now()), -2)] = { rating: 7, text: 'older day', updated: Date.now() }; saveJournal(); renderJournalLists();`);
+    const older = g('shiftKey(dayKey(Date.now()), -2)');
+    await record(2500, async () => { g(`switchDate('${older}'); renderJournalLists();`); });
+    check('saved to the day it was recorded on', clipsOn(k0).length === 2 && clipsOn(older).length === 0, [clipsOn(k0).length, clipsOn(older).length]);
+    check('older day still has its text and rating', g('journal').entries[older].text === 'older day' && g('journal').entries[older].rating === 7);
+    g(`switchDate('${k0}'); renderJournalLists();`);
+    await wait(300);
+
+    group('Text written in the editor is saved before recording');
+    $('jText').value = 'rant notes';
+    $('jText').dispatchEvent(new w.Event('input'));
+    await record(1500);
+    check('notes kept with the clips', g('journal').entries[k0].text === 'rant notes' && clipsOn(k0).length === 3, [g('journal').entries[k0].text, clipsOn(k0).length]);
+
+    group('Reloading mid-recording: recovered on the next start');
+    $('jvRecord').click();
+    await until(() => !$('jvRec').hidden, 10000);
+    await wait(4500);
+    const before = clipsOn(k0).length;
+    const pendingChunks = (await chunks()).length;
+    check('chunks were being written while recording', pendingChunks >= 3, pendingChunks);
+    // a crash: from here on the old page can't write anything, so it never finishes the clip
+    w.IDBDatabase.prototype.transaction = () => { throw new w.DOMException('crashed', 'InvalidStateError'); };
+    await reload();
+    const recovered = await until(() => clipsOn(k0).length === before + 1, 8000);
+    check('clip recovered and attached', recovered, [before, clipsOn(k0).length]);
+    check('"Recovered an unfinished recording" shown', /Recovered an unfinished recording/.test(toastText()), toastText());
+    check('chunks cleared', (await chunks()).length === 0);
+    const last = clipsOn(k0)[clipsOn(k0).length - 1];
+    check('recovered length about 4 s or more', last.dur >= 3000 && last.dur < 9000, last.dur);
+    vs = await videos();
+    check('recovered video stored', !!vs.find(v => v.id === last.id && v.blob.size > 10000));
+    g("showTab('journal')");
+    await wait(300);
+
+    group('A normal reload while recording (pagehide)');
+    $('jvRecord').click();
+    await until(() => !$('jvRec').hidden, 10000);
+    await wait(3000);
+    const n2 = clipsOn(k0).length;
+    await reload();
+    const ok2 = await until(() => clipsOn(k0).length === n2 + 1, 6000);
+    check('clip saved or recovered after the reload', ok2, [n2, clipsOn(k0).length]);
+    check('no chunks left', (await chunks()).length === 0);
+    const ids = clipsOn(k0).map(v => v.id);
+    check('no duplicate clips', new Set(ids).size === ids.length, ids);
+    g("showTab('journal')");
+    await wait(300);
+
+    group('Deleting the entry deletes its clips (with Undo)');
+    const n3 = clipsOn(k0).length;
+    $('jDelete').click();
+    await wait(400);
+    check('entry gone', !g('journal').entries[k0]);
+    check('toast names the clips', new RegExp(`${n3} clips deleted`).test(toastText()), toastText());
+    clickToastAction();
+    await wait(1000);
+    check('Undo brings back the entry with its clips', clipsOn(k0).length === n3 && g('journal').entries[k0].text === 'rant notes');
+    vs = await videos();
+    check('videos not marked deleted', vs.filter(v => !v.trash).length === n3, vs.map(v => v.trash));
+    check('players back', w.document.querySelectorAll('#jvClips .jv-player').length === n3);
+
+    group('Restore (signed out) with a backup without the clips');
+    const dt = new w.DataTransfer();
+    dt.items.add(new w.File([JSON.stringify({ app: 'pomodoro', version: 1, analytics: { v: 1, days: {} }, tasks: { v: 1, items: [] }, journal: { v: 1, entries: {} } })], 'b.json', { type: 'application/json' }));
+    $('restoreFile').files = dt.files;
+    $('restoreFile').dispatchEvent(new w.Event('change'));
+    await until(() => /Backup restored/.test(toastText()), 5000);   // the restore reads the file first
+    await until(() => clipsOn(k0).length === n3, 5000);
+    vs = await videos();
+    check('no videos deleted by the restore', vs.length === n3, vs.length);
+    check('clips put back on their day', clipsOn(k0).length === n3, [clipsOn(k0).length, vs.map(v => [v.id, v.date, v.trash]), Object.keys(g('journal').entries)]);
+    check('Settings says the backup has no videos', /not in the backup/.test(w.document.body.textContent));
+
+    group('A clip recorded on another device');
+    g(`journal.entries[shiftKey(dayKey(Date.now()), -2)] = { rating: 7, text: 'older day', updated: Date.now() }; saveJournal();`);
+    g(`(() => { const e = journal.entries[shiftKey(dayKey(Date.now()), -2)]; e.videos = [{ id: 'other1', at: Date.now(), dur: 61000, size: 500000, mime: 'video/mp4', device: 'otherdev', devName: 'iPhone/iPad · Safari' }]; saveJournal(); })()`);
+    g(`switchDate('${older}'); renderJournalLists();`);
+    await wait(300);
+    check('shown as on another device, with its name', /Recorded on another device \(iPhone\/iPad · Safari\), not on this one/.test($('jvClips').textContent), $('jvClips').textContent);
+    check('no player, Download or Delete for it', !$('jvClips').querySelector('video, audio, button'));
+    g(`switchDate('${k0}'); renderJournalLists();`);
+    await wait(300);
+
+    group('Not enough storage');
+    const realEstimate = w.navigator.storage.estimate;
+    w.navigator.storage.estimate = () => Promise.resolve({ usage: 900e6, quota: 1000e6 });
+    $('jvRecord').click();
+    await wait(800);
+    check('refused with a message', /Not enough free storage/.test($('jvNote').textContent) && !g('JournalVideo.recording'), $('jvNote').textContent);
+    w.navigator.storage.estimate = realEstimate;
+
+    group('A storage write failing mid-recording');
+    const n4 = clipsOn(k0).length;
+    const proto = w.IDBObjectStore.prototype, realAdd = proto.add;
+    let adds = 0;
+    proto.add = function (...a) { if (++adds > 2) throw new w.DOMException('fake quota', 'QuotaExceededError'); return realAdd.apply(this, a); };
+    $('jvRecord').click();
+    await until(() => !$('jvRec').hidden, 10000);
+    const t4 = $('jvPreview').srcObject.getTracks();
+    const stopped = await until(() => !g('JournalVideo.recording') && $('jvRec').hidden, 10000);
+    proto.add = realAdd;
+    await wait(800);
+    check('recording stopped by itself', stopped);
+    check('tracks ended', t4.every(x => x.readyState === 'ended'));
+    check('what was saved is kept', clipsOn(k0).length === n4 + 1 && clipsOn(k0)[n4].dur >= 1000, clipsOn(k0).map(v => v.dur));
+    check('user told', /Storage is full or blocked/.test(toastText()), toastText());
+
+    group('No camera: audio only');
+    const md = w.navigator.mediaDevices, realGum = md.getUserMedia.bind(md);
+    md.getUserMedia = c => c.video ? Promise.reject(new w.DOMException('no camera', 'NotFoundError')) : realGum(c);
+    $('jvRecord').click();
+    const offered = await until(() => /record audio only/i.test($('jvNote').textContent), 6000);
+    check('offers audio only', offered, $('jvNote').textContent);
+    const go = [...$('jvNote').querySelectorAll('button')].find(b => /audio only/.test(b.textContent));
+    go.click();
+    await until(() => !$('jvRec').hidden, 6000);
+    check('recording audio', /Recording audio/.test($('jvRecLabel').textContent) && $('jvPreview').hidden);
+    await wait(2500);
+    $('jvStop').click();
+    await until(() => !g('JournalVideo.recording'), 6000);
+    await wait(800);
+    const am = clipsOn(k0)[clipsOn(k0).length - 1];
+    check('audio clip saved', /^audio\//.test(am.mime) && am.dur >= 2000, am);
+    check('shown with an audio player', !!$('jvClips').querySelector('audio.jv-player'));
+    check('Download name uses an audio extension', /^audio\/(mp4|webm)/.test(am.mime));
+
+    group('Camera and microphone both blocked');
+    md.getUserMedia = () => Promise.reject(new w.DOMException('denied', 'NotAllowedError'));
+    $('jvRecord').click();
+    const told = await until(() => /blocked/.test($('jvNote').textContent), 5000);
+    check('explains how to allow them', told && /allow Camera and Microphone/.test($('jvNote').textContent), $('jvNote').textContent);
+    check('not recording', !g('JournalVideo.recording'));
+    md.getUserMedia = realGum;
+
+    group('No MediaRecorder in this browser');
+    mode = { noRecorder: true };
+    await load();
+    g("showTab('journal')");
+    await wait(500);
+    check('app loads and the Journal works', !$('journalView').hidden && $('jStrip').children.length === 14);
+    check('Record button hidden', $('jvRecord').hidden || $('jVideo').hidden);
+    check('existing clips still listed', w.document.querySelectorAll('#jvClips .jv-clip').length === clipsOn(k0).length);
+    mode = {};
+  }
+
+  (async () => {
+    try {
+      await new Promise((res) => { const r = indexedDB.deleteDatabase(TEST_DB); r.onsuccess = r.onerror = r.onblocked = res; });
+      await load();
+      await run();
+    } catch (e) {
+      errors.push('test crashed: ' + (e.stack || e));
+    }
+    if (frame) frame.remove();
+    await wait(200);
+    await new Promise((res) => { const r = indexedDB.deleteDatabase(TEST_DB); r.onsuccess = r.onerror = r.onblocked = res; setTimeout(res, 2000); });
+    group('Errors in the app during the run');
+    check('none', errors.length === 0, errors);
+    const s = document.getElementById('summary');
+    s.textContent = `${pass} passed, ${fail} failed`;
+    s.className = fail ? 'bad' : 'ok';
+    document.title = (fail ? '✕ ' : '✓ ') + 'Pomegranate video journal tests';
+  })();
+})();
+</script>
+</body>
+</html>

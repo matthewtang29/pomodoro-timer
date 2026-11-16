@@ -390,10 +390,28 @@ const Sync = (() => {
     setState('off');
   }
 
+  // ---------------------------------------------------------------- journal video clips
+  // A clip's video stays on the device that recorded it (journalvideo.js); only its details are
+  // on the entry. Entries are whole-doc last-write-wins, so a newer copy saved by a device that
+  // hadn't seen a clip yet would drop it. This device's own clips are kept when that happens,
+  // and one of its clips that it deleted (no longer holds) isn't brought back. Returns the clip
+  // list to use, and whether it differs from the incoming one (then it's sent back up).
+  function mergeClips(local, incoming) {
+    const own = v => v && v.device === deviceId;
+    const holds = id => (typeof JournalVideo === 'undefined' ? null : JournalVideo.holds(id));
+    const mine = (local && Array.isArray(local.videos) ? local.videos : []).filter(own);
+    const theirs = incoming && Array.isArray(incoming.videos) ? incoming.videos.filter(v => v && v.id) : [];
+    const kept = theirs.filter(v => !own(v) || holds(v.id) !== false || mine.some(m => m.id === v.id));
+    const add = mine.filter(m => !kept.some(v => v.id === m.id));
+    if (!add.length && kept.length === theirs.length) return { videos: theirs, changed: false };
+    return { videos: kept.concat(add).sort((a, b) => (a.at || 0) - (b.at || 0)), changed: true };
+  }
+
   // ---------------------------------------------------------------- receiving changes
   function onSnap(kind, snap) {
     let changed = false;
     const ids = new Set();   // items this snapshot wrote, the only ones stamp() takes as-is
+    const bump = {};         // journal entries merged with this device's clips -> the incoming u
     const cut = now() - TOMB_MAX_AGE;
     retryMs = 0;
     if (listenFailed) { listenFailed = false; setState('synced'); }
@@ -448,7 +466,14 @@ const Sync = (() => {
         const local = items[doc.id];
         const localU = local ? (local.u || 0) : (tomb[kind][doc.id] || 0);
         if ((data.u || 0) <= localU) return;
-        if (data.deleted) {
+        // journal: this device's clips survive a newer copy without them (see mergeClips)
+        const clips = kind === 'journal' && local ? mergeClips(local, data.deleted ? null : data) : null;
+        if (data.deleted && clips && clips.videos.length) {
+          // deleted elsewhere, but its videos are here: keep the entry with just those clips
+          items[doc.id] = { rating: null, text: '', updated: now(), videos: clips.videos };
+          bump[doc.id] = data.u || 0;
+          changed = true;   // not in ids: saved as a local change, so it goes back up
+        } else if (data.deleted) {
           if (local) {
             if (kind === 'tasks') tasks.items = tasks.items.filter(t => t.id !== doc.id);
             else delete items[doc.id];
@@ -458,6 +483,7 @@ const Sync = (() => {
           if (!old) tomb[kind][doc.id] = data.u;
         } else {
           const item = { ...data };
+          if (clips) { if (clips.videos.length) item.videos = clips.videos; else delete item.videos; }
           if (kind === 'tasks') {
             const i = tasks.items.findIndex(t => t.id === doc.id);
             if (i >= 0) tasks.items[i] = item; else tasks.items.push(item);
@@ -465,7 +491,8 @@ const Sync = (() => {
             items[doc.id] = item;
           }
           delete tomb[kind][doc.id];
-          ids.add(doc.id);
+          if (clips && clips.changed) bump[doc.id] = data.u || 0;   // merged clips: a local change, sent back up
+          else ids.add(doc.id);
           changed = true;
         }
       });
@@ -473,7 +500,14 @@ const Sync = (() => {
       applying = ids;
       if (changed) {
         if (kind === 'tasks') saveTasks();
-        if (kind === 'journal') saveJournal();
+        if (kind === 'journal') {
+          saveJournal();
+          // a merged entry must be newer than the copy it answers, whatever this device's clock says
+          const ents = itemsOf('journal');
+          const late = Object.keys(bump).filter(id => ents[id] && !((ents[id].u || 0) > bump[id]));
+          late.forEach(id => { ents[id].u = bump[id] + 1; });
+          if (late.length) saveJournal();
+        }
         if (kind === 'habits') saveHabits();
         if (kind === 'sleep') saveSleep();
         if (kind === 'days') write(LS.remote, remoteDays);
@@ -763,7 +797,7 @@ const Sync = (() => {
   }
 
   return {
-    start, stamp, stampMeta, mergedDay, allDayKeys, clearDays, signIn, signOut, flush, deleteCloudData, restoreBackup,
+    start, stamp, stampMeta, mergedDay, mergeClips, allDayKeys, clearDays, signIn, signOut, flush, deleteCloudData, restoreBackup,
     prefetch: () => loadSdk().catch(() => {}),
     get signedIn() { return !!user; },
     get deviceId() { return deviceId; },

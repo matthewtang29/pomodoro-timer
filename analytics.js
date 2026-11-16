@@ -294,6 +294,9 @@ $('restoreFile').addEventListener('change', async () => {
   };
   try {
     const n = typeof Sync !== 'undefined' ? Sync.restoreBackup(data, replace) : (replace(), null);
+    // the backup has no videos: clips held on this device stay, and go back on their day if the
+    // restored journal doesn't list them
+    if (typeof JournalVideo !== 'undefined') JournalVideo.reattach();
     refreshView();
     showStorageUsed();
     toast(n ? `Backup merged: ${n.added} added, ${n.updated} updated, ${n.kept} already newer here` : 'Backup restored');
