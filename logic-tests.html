@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pomegranate logic tests</title>
+<!-- Tests for the pure logic in tasks.js (quick-add parser, repeats), score.js (session and daily
+     scores), sync.js (merged study days) and journal.js (rating averages), plus a check that the
+     built-in timer (localtimer.js) and the cloud alert scheduler (cloud/functions/index.js) follow
+     the same phase rules. Runs the real app (index.html and its scripts) in a frame with its own
+     in-memory localStorage and service worker stand-ins, so nothing real is read or changed. The
+     frame's clock is stubbed: "now" is always Wed 17 Jun 2026, 12:00 local time, so the results don't
+     depend on today's date or the machine's timezone. Open it from a local server or GitHub Pages. -->
+<style>
+  :root { --bg: #fafaf7; --text: #1b1b19; --muted: #67655f; --ok: #3f7a4b; --bad: #b4422e; --line: #e9e7e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151715; --text: #e8e6e1; --muted: #a19e98; --ok: #9cc7a3; --bad: #f2aa8a; --line: #2c302d; } }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  #summary { margin: 0 0 20px; font-weight: 600; }
+  h2 { font-size: 14px; margin: 20px 0 6px; color: var(--muted); }
+  li { list-style: none; padding: 4px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  ul { margin: 0; padding: 0; }
+  .ok::before { content: "✓ "; color: var(--ok); }
+  .bad { color: var(--bad); } .bad::before { content: "✕ "; }
+  iframe { position: absolute; left: -9999px; width: 1100px; height: 800px; border: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Logic tests</h1>
+  <p id="summary">Running…</p>
+  <div id="out"></div>
+</main>
+<script>
+(() => {
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0, list = null;
+  function group(name) {
+    out.insertAdjacentHTML('beforeend', '<h2></h2><ul></ul>');
+    out.lastElementChild.previousElementSibling.textContent = name;
+    list = out.lastElementChild;
+  }
+  function record(name, ok, detail) {
+    ok ? pass++ : fail++;
+    const li = document.createElement('li');
+    li.className = ok ? 'ok' : 'bad';
+    li.textContent = ok ? name : `${name}: ${detail}`;
+    list.append(li);
+  }
+  // key order doesn't matter when comparing objects
+  const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
+  function eq(name, got, want) { record(name, canon(got) === canon(want), `got ${canon(got)}, want ${canon(want)}`); }
+  function near(name, got, want) { record(name, Math.abs(got - want) < 1e-9, `got ${got}, want ${want}`); }
+  function ok(name, cond, info) { record(name, !!cond, info === undefined ? 'false' : canon(info)); }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  // ---------------------------------------------------------------- stand-ins inside the frame
+  // Called by a script injected at the top of the frame's <head>, before any app script.
+  let fakeNow = 0;
+  let setNow = () => {};
+  window.installFakes = w => {
+    const mem = {};
+    const storage = {
+      getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); },
+      removeItem: k => { delete mem[k]; }, clear: () => { for (const k in mem) delete mem[k]; },
+      key: i => Object.keys(mem)[i] ?? null, get length() { return Object.keys(mem).length; },
+    };
+    Object.defineProperty(w, 'localStorage', { value: storage, configurable: true });
+    Object.defineProperty(w.navigator, 'serviceWorker', { configurable: true, value: {
+      controller: null, ready: new Promise(() => {}), addEventListener() {},
+      register: () => Promise.resolve({ update() {} }), getRegistration: () => Promise.resolve(undefined),
+    } });
+    Object.defineProperty(w.navigator, 'locks', { configurable: true, value: { request: (n, o, cb) => Promise.resolve(cb({})) } });
+    w.BroadcastChannel = class { postMessage() {} close() {} };
+    w.history.replaceState = () => {};
+    w.confirm = () => true;
+
+    // this device, and what two other devices studied (read by sync.js at load)
+    const session = (start, focus) => ({ start, end: start + focus * 1000, mode: 'CUSTOM', focus, desk: focus, blocks: 1, outcome: 'completed' });
+    const sameDay = { focus: 600, brk: 60, other: 0, blocks: 1, sessions: [session(1000, 600)] };
+    w.localStorage.setItem('pomodoro-device-id', JSON.stringify('thisdev'));
+    w.localStorage.setItem('pomodoro-sync-remote-days', JSON.stringify({
+      devB: {
+        '2026-05-01': sameDay,                                                                    // an exact copy of this device's day
+        '2026-05-02': { focus: 900, brk: 0, other: 0, blocks: 1, sessions: [session(5000, 900)] },  // the same backup on two other devices...
+        '2026-05-03': { focus: 300, brk: 0, other: 0, blocks: 1, sessions: [session(9000, 300)] },  // a different session on the same day
+      },
+      devC: {
+        '2026-05-02': { focus: 900, brk: 0, other: 0, blocks: 1, sessions: [session(5000, 900)] },  // ...restored again here
+      },
+      thisdev: { '2026-05-03': { focus: 99999, brk: 0, other: 0, blocks: 9, sessions: [] } },     // never counted: that's this device
+    }));
+
+    // The clock: "now" is Wed 17 Jun 2026 12:00 (local time) and only moves when a test moves it.
+    fakeNow = new w.Date(2026, 5, 17, 12, 0).getTime();
+    setNow = ms => { fakeNow = ms; };
+    const RealDate = w.Date;
+    w.Date = class extends RealDate {
+      constructor(...a) { if (a.length) super(...a); else super(fakeNow); }
+      static now() { return fakeNow; }
+    };
+  };
+
+  // ---------------------------------------------------------------- the cloud function, in the browser
+  // cloud/functions/index.js is a Node module: read its text and run it with a stand-in for
+  // require() (every Firebase call just returns another stand-in) and POMEGRANATE_TEST set,
+  // which makes it export the functions test.js uses.
+  async function loadCloud() {
+    const src = await (await fetch('cloud/functions/index.js', { cache: 'no-store' })).text();
+    const stub = () => new Proxy(function () {}, { get: () => stub(), apply: () => stub() });
+    const exports = {};
+    new Function('require', 'exports', 'process', src)(() => stub(), exports, { env: { POMEGRANATE_TEST: '1' } });
+    return exports;
+  }
+
+  // ---------------------------------------------------------------- the tests
+  async function run(w) {
+    const g = expr => w.eval(expr);   // the app's top-level let/const aren't window properties
+    const $ = id => w.document.getElementById(id);
+    const NOW = fakeNow;
+
+    group('Setup');
+    eq('clock is pinned to Wed 17 Jun 2026', g("[todayKey(), new Date().getDay()]"), ['2026-06-17', 3]);
+    ok('frame uses its own in-memory localStorage', w.localStorage !== window.localStorage);
+
+    // ------------------------------------------------------------ tasks.js: parseQuickAdd
+    const parse = text => g(`parseQuickAdd(${JSON.stringify(text)})`);
+    group('parseQuickAdd: dates (today is Wed 2026-06-17)');
+    eq('plain title, nothing else', parse('Read chapter 4'), { title: 'Read chapter 4' });
+    eq('today', parse('Read ch4 today'), { title: 'Read ch4', due: '2026-06-17' });
+    eq('tod', parse('Read ch4 tod'), { title: 'Read ch4', due: '2026-06-17' });
+    eq('tmr', parse('Buy milk tmr'), { title: 'Buy milk', due: '2026-06-18' });
+    eq('tomorrow', parse('Buy milk tomorrow'), { title: 'Buy milk', due: '2026-06-18' });
+    eq('"due tomorrow" takes the "due" too', parse('Buy milk due tomorrow'), { title: 'Buy milk', due: '2026-06-18' });
+    eq('yesterday', parse('Email Sam yesterday'), { title: 'Email Sam', due: '2026-06-16' });
+    eq('in 3 days', parse('Call mom in 3 days'), { title: 'Call mom', due: '2026-06-20' });
+    eq('weekday later this week (fri)', parse('Lab fri'), { title: 'Lab', due: '2026-06-19' });
+    eq('full weekday name', parse('Lab friday'), { title: 'Lab', due: '2026-06-19' });
+    eq('weekday already passed this week rolls forward (mon)', parse('Lab mon'), { title: 'Lab', due: '2026-06-22' });
+    eq('same weekday as today means today', parse('Lab wed'), { title: 'Lab', due: '2026-06-17' });
+    eq('"next wed" means a week from today', parse('Lab next wed'), { title: 'Lab', due: '2026-06-24' });
+    eq('"on mon"', parse('Lab on mon'), { title: 'Lab', due: '2026-06-22' });
+    eq('next week = next Monday', parse('Plan next week'), { title: 'Plan', due: '2026-06-22' });
+    eq('"oct 3"', parse('Party oct 3'), { title: 'Party', due: '2026-10-03' });
+    eq('"October 3rd"', parse('Party October 3rd'), { title: 'Party', due: '2026-10-03' });
+    eq('"3 oct"', parse('Party 3 oct'), { title: 'Party', due: '2026-10-03' });
+    eq('"10/3" is month/day', parse('Party 10/3'), { title: 'Party', due: '2026-10-03' });
+    eq('"due 10/3"', parse('Party due 10/3'), { title: 'Party', due: '2026-10-03' });
+    eq('a date later this month', parse('Rent jun 30'), { title: 'Rent', due: '2026-06-30' });
+
+    group('parseQuickAdd: a date that has passed rolls to next year');
+    eq('"feb 10" -> next February', parse('Dentist feb 10'), { title: 'Dentist', due: '2027-02-10' });
+    eq('"2/10" -> next February', parse('Dentist 2/10'), { title: 'Dentist', due: '2027-02-10' });
+    eq('"10 feb" -> next February', parse('Dentist 10 feb'), { title: 'Dentist', due: '2027-02-10' });
+    eq('"jun 16" (yesterday) -> next year', parse('Task jun 16'), { title: 'Task', due: '2027-06-16' });
+    eq('"jun 17" (today) stays today', parse('Task jun 17'), { title: 'Task', due: '2026-06-17' });
+    eq('"dec 31" is still this year', parse('Task dec 31'), { title: 'Task', due: '2026-12-31' });
+    eq('"feb 31" is not a date, so it stays in the title', parse('Pay feb 31'), { title: 'Pay feb 31' });
+    eq('"13/40" is not a date', parse('Thing 13/40'), { title: 'Thing 13/40' });
+
+    group('parseQuickAdd: the last date phrase wins');
+    eq('"mon tmr" -> tomorrow', parse('Task mon tmr').due, '2026-06-18');
+    eq('"tmr mon" -> Monday', parse('Task tmr mon').due, '2026-06-22');
+    eq('"today oct 3" -> Oct 3', parse('Task today oct 3').due, '2026-10-03');
+    eq('"oct 3 fri" -> Friday', parse('Task oct 3 fri').due, '2026-06-19');
+    eq('an invalid later phrase does not win ("fri feb 31")', parse('Task fri feb 31').due, '2026-06-19');
+
+    group('parseQuickAdd: repeats, priority, difficulty, project');
+    eq('"every mon" repeats weekly and sets the first due date', parse('Gym every mon'), { title: 'Gym', repeat: 'weekly', due: '2026-06-22' });
+    eq('"every friday"', parse('Gym every friday'), { title: 'Gym', repeat: 'weekly', due: '2026-06-19' });
+    eq('"every day"', parse('Stretch every day'), { title: 'Stretch', repeat: 'daily' });
+    eq('"daily"', parse('Stretch daily'), { title: 'Stretch', repeat: 'daily' });
+    eq('"weekdays"', parse('Standup weekdays'), { title: 'Standup', repeat: 'weekdays' });
+    eq('"every 2 weeks"', parse('Review every 2 weeks'), { title: 'Review', repeat: 'biweekly' });
+    eq('"biweekly"', parse('Review biweekly'), { title: 'Review', repeat: 'biweekly' });
+    eq('"every week"', parse('Review every week'), { title: 'Review', repeat: 'weekly' });
+    eq('"monthly"', parse('Rent monthly'), { title: 'Rent', repeat: 'monthly' });
+    eq('!high', parse('Fix bug !high'), { title: 'Fix bug', priority: 1 });
+    eq('! alone is high', parse('Fix bug !'), { title: 'Fix bug', priority: 1 });
+    eq('!low', parse('Fix bug !low'), { title: 'Fix bug', priority: 4 });
+    eq('old p1 / p2 count as high', [parse('x p1').priority, parse('x p2').priority], [1, 1]);
+    eq('old p3 / p4 count as low', [parse('x p3').priority, parse('x p4').priority], [4, 4]);
+    eq('d1 / d2 / d3 -> easy / medium / hard', [parse('x d1').difficulty, parse('x d2').difficulty, parse('x d3').difficulty], [1, 3, 5]);
+    eq('#project', parse('Lab report #ECE140'), { title: 'Lab report', project: 'ECE140' });
+    eq('project with a dash and a dot', parse('Lab #ece-140.2'), { title: 'Lab', project: 'ece-140.2' });
+    eq('all together (the example in tasks.js)', parse('Circuits lab report fri !high d3 #ECE140'),
+      { title: 'Circuits lab report', due: '2026-06-19', priority: 1, difficulty: 5, project: 'ECE140' });
+    eq('shortcuts can come first', parse('!low d1 #home tmr Water plants'), { title: 'Water plants', due: '2026-06-18', priority: 4, difficulty: 1, project: 'home' });
+    eq('a word that merely contains a shortcut is left alone', parse('Reply to Dominic about the d10 form'), { title: 'Reply to Dominic about the d10 form' });
+
+    // ------------------------------------------------------------ tasks.js: stepRepeat, nextDue
+    const step = (k, r) => g(`stepRepeat('${k}', '${r}')`);
+    group('stepRepeat');
+    eq('daily', step('2026-06-17', 'daily'), '2026-06-18');
+    eq('daily over New Year', step('2026-12-31', 'daily'), '2027-01-01');
+    eq('weekly', step('2026-06-17', 'weekly'), '2026-06-24');
+    eq('biweekly', step('2026-06-17', 'biweekly'), '2026-07-01');
+    eq('weekdays: Wed -> Thu', step('2026-06-17', 'weekdays'), '2026-06-18');
+    eq('weekdays: Fri -> Mon', step('2026-06-19', 'weekdays'), '2026-06-22');
+    eq('weekdays: Sat -> Mon', step('2026-06-20', 'weekdays'), '2026-06-22');
+    eq('weekdays: Sun -> Mon', step('2026-06-21', 'weekdays'), '2026-06-22');
+    eq('monthly', step('2026-06-17', 'monthly'), '2026-07-17');
+    eq('monthly from Jan 31 -> Feb 28', step('2026-01-31', 'monthly'), '2026-02-28');
+    eq('monthly from Jan 31 in a leap year -> Feb 29', step('2028-01-31', 'monthly'), '2028-02-29');
+    eq('monthly from Mar 31 -> Apr 30', step('2026-03-31', 'monthly'), '2026-04-30');
+    eq('monthly over New Year', step('2026-12-15', 'monthly'), '2027-01-15');
+    eq('monthly from Dec 31 -> Jan 31', step('2026-12-31', 'monthly'), '2027-01-31');
+
+    const due = t => g(`nextDue(${JSON.stringify(t)})`);
+    group('nextDue (today is 2026-06-17)');
+    eq('due today, weekly -> a week on', due({ due: '2026-06-17', repeat: 'weekly' }), '2026-06-24');
+    eq('due in the future, daily -> the day after that', due({ due: '2026-06-30', repeat: 'daily' }), '2026-07-01');
+    eq('overdue weekly keeps its weekday (Mon 1 Jun -> Mon 22 Jun)', due({ due: '2026-06-01', repeat: 'weekly' }), '2026-06-22');
+    eq('overdue daily -> tomorrow', due({ due: '2026-05-01', repeat: 'daily' }), '2026-06-18');
+    eq('overdue biweekly keeps its rhythm', due({ due: '2026-05-20', repeat: 'biweekly' }), '2026-07-01');
+    eq('overdue weekdays skips the weekend (Fri 12 Jun -> Thu 18 Jun)', due({ due: '2026-06-12', repeat: 'weekdays' }), '2026-06-18');
+    eq('overdue monthly keeps its day of the month', due({ due: '2026-04-30', repeat: 'monthly' }), '2026-06-30');
+    eq('no due date counts from today', due({ due: null, repeat: 'daily' }), '2026-06-18');
+    ok('never returns today or earlier', ['daily', 'weekdays', 'weekly', 'biweekly', 'monthly'].every(r => due({ due: '2020-01-01', repeat: r }) > '2026-06-17'));
+
+    // ------------------------------------------------------------ score.js: sessionScore
+    const ss = s => g(`sessionScore(${JSON.stringify(s)})`);
+    const base = { focus: 1500, desk: 1800, focusMin: 25, breakMin: 5, mode: 'CUSTOM', cycles: 1, blocks: 1, outcome: 'completed' };
+    group('sessionScore');
+    eq('no session -> null', [ss(undefined), ss(null), ss({})], [null, null, null]);
+    eq('under a minute of focus -> null', [ss({ ...base, focus: 59 }), ss({ ...base, focus: 59.9 }), ss({ ...base, focus: 0 })], [null, null, null]);
+    ok('exactly a minute is scored', ss({ ...base, focus: 60, desk: 72 }) !== null);
+    let r = ss(base);
+    eq('finished plan, on-plan desk time, no task -> 90', r.score, 90);
+    near('  completion', r.completion, 1); near('  efficiency', r.efficiency, 1);
+    near('  intensity (neutral difficulty 2.5 / 5)', r.intensity, 0.5); near('  avgDiff', r.avgDiff, 2.5);
+    eq('all focus on a hard task -> 100', ss({ ...base, work: { a: 1500 }, diffs: { a: 5 } }).score, 100);
+    eq('all focus on an easy task -> 84', ss({ ...base, work: { a: 1500 }, diffs: { a: 1 } }).score, 84);
+    eq('half on a hard task, the rest unlinked -> avg 3.75 -> 95', ss({ ...base, focus: 1200, desk: 1440, work: { a: 600 }, diffs: { a: 5 } }).score, 95);
+    r = ss({ ...base, focus: 900, desk: 1080, outcome: 'exited' });
+    near('exited with 900 of 1500 planned s: completion 0.6', r.completion, 0.6);
+    eq('  score', r.score, 72);
+    eq('a task checked off counts as complete however short', ss({ ...base, focus: 100, desk: 100, cycles: 4, outcome: 'exited', tasksDone: [{ id: 'a' }] }).completion, 1);
+    r = ss({ ...base, mode: 'AUTO', cycles: 0, blocks: 2, outcome: 'exited' });
+    near('auto mode exited after 2 blocks: completion 2/3', r.completion, 2 / 3);
+    eq('  score', r.score, 75);
+    near('completion never above 1 (focus past the plan)', ss({ ...base, focus: 3000, desk: 3600, outcome: 'exited' }).completion, 1);
+    r = ss({ ...base, desk: 3000 });
+    near('long pauses lower efficiency (1500 of 3000 s vs a 25/30 plan = 0.6)', r.efficiency, 0.6);
+    eq('  score', r.score, 76);
+    r = ss({ ...base, focus: 600, desk: 0 });
+    eq('no desk time recorded -> efficiency 0', [r.efficiency, r.score], [0, 55]);
+    near('a longer break plan allows less focus share (50/10: 0.8333 plan ratio)', ss({ ...base, focusMin: 50, breakMin: 10, focus: 1500, desk: 1800 }).efficiency, 1);
+    near('...and 25/25 allows less still (focus share 0.8333 vs plan 0.5 -> capped at 1)', ss({ ...base, breakMin: 25 }).efficiency, 1);
+
+    // ------------------------------------------------------------ score.js: dayScore
+    // days and tasks are set directly in the frame (nothing is saved)
+    const setup = (days, items) => g(`store.days = ${JSON.stringify(days)}; tasks.items = ${JSON.stringify(items)}; focusGoalMin = 120;`);
+    const noonOf = (m, d) => g(`new Date(2026, ${m}, ${d}, 12).getTime()`);
+    const D = (focus, sessions) => ({ focus, brk: 0, other: 0, blocks: 1, sessions: sessions || [] });
+    const T = (id, difficulty, dueKey, doneAt) => ({ id, title: id, due: dueKey, priority: 4, difficulty, project: '', created: 1, done: doneAt || null, focusSec: 0 });
+    const part = (res, key) => res.parts.find(p => p.key === key);
+    const day = k => g(`dayScore('${k}')`);
+    const K = '2026-06-10';
+    const sess1 = { ...base };                               // scores 90
+    const sess2 = { ...base, focus: 600, desk: 0 };          // scores 55
+
+    group('dayScore: parts with nothing to measure are left out and the rest rescaled');
+    setup({ [K]: D(3600) }, []);
+    r = day(K);
+    eq('focus only: 1 h of a 2 h goal -> 50 (the other two parts are left out, not counted as 0)', r.score, 50);
+    eq('  tasks and sessions parts have no value', [part(r, 'tasks').value, part(r, 'sessions').value], [null, null]);
+    eq('  all three parts are listed', r.parts.map(p => p.key), ['focus', 'tasks', 'sessions']);
+    setup({ [K]: D(7200) }, []);
+    eq('focus goal met -> 100', day(K).score, 100);
+    setup({ [K]: D(36000) }, []);
+    eq('focus past the goal is capped at 100', day(K).score, 100);
+    setup({ [K]: D(7200) }, [T('a', 1, K, noonOf(5, 10)), T('b', 3, K)]);
+    r = day(K);
+    near('tasks part: 1 of 4 difficulty points done', part(r, 'tasks').value, 0.25);
+    eq('goal met + that task share -> (40 + 30 x 0.25) / 70 = 68', r.score, 68);
+    setup({ [K]: D(7200) }, [T('a', 1, K, noonOf(5, 10)), T('b', 3, K), T('c', 5, '2026-06-12', noonOf(5, 10))]);
+    near('a task done today counts even when due another day: 6 of 9 points', part(day(K), 'tasks').value, 6 / 9);
+    eq('  score', day(K).score, 86);
+    setup({ [K]: D(7200) }, [T('a', 3, K, noonOf(5, 11))]);
+    eq('a task finished the next day is not done on this day', part(day(K), 'tasks').value, 0);
+    setup({ [K]: D(7200, [sess1]) }, []);
+    near('sessions part: one session scoring 90', part(day(K), 'sessions').value, 0.9);
+    eq('  score = (40 + 30 x 0.9) / 70 = 96', day(K).score, 96);
+    setup({ [K]: D(7200, [sess1, sess2]) }, []);
+    r = day(K);
+    near('sessions are weighted by focus time: (90 x 1500 + 55 x 600) / 2100 = 80', part(r, 'sessions').value, 0.8);
+    eq('  score = (40 + 30 x 0.8) / 70 = 91', r.score, 91);
+    setup({ [K]: D(7200, [{ ...base, focus: 59 }]) }, []);
+    eq('a session under a minute is left out of the quality part', part(day(K), 'sessions').value, null);
+    setup({ [K]: D(7200, [sess1]) }, [T('a', 3, K, noonOf(5, 10))]);
+    eq('all three parts present: (40 + 30 + 27) / 100 = 97', day(K).score, 97);
+
+    group('dayScore: days with nothing to score');
+    setup({ [K]: D(0) }, []);
+    eq('no focus and no tasks -> null', day(K), null);
+    setup({ [K]: D(59) }, []);
+    eq('under a minute of focus and no tasks -> null', day(K), null);
+    setup({}, []);
+    eq('a day with no record -> null', day('2026-06-09'), null);
+    setup({ [K]: D(30) }, [T('a', 3, K)]);
+    ok('a task due that day is enough to score it', day(K) !== null);
+    setup({ '2026-06-18': D(7200) }, []);
+    eq('a future day -> null', day('2026-06-18'), null);
+    setup({ '2026-06-17': D(7200) }, []);
+    eq('today is scored', day('2026-06-17').score, 100);
+    eq('scoreBucket: 0-19 -> 1, 20 -> 2, 99 -> 5, 100 -> 5', g('[0, 19, 20, 99, 100].map(scoreBucket)'), [1, 1, 2, 5, 5]);
+
+    // ------------------------------------------------------------ sync.js: mergedDay
+    // This frame's device id is "thisdev"; devB and devC were seeded into its saved list of other
+    // devices' days before the app loaded (see installFakes).
+    const merge = (k, own) => g(`Sync.mergedDay('${k}', ${JSON.stringify(own)})`);
+    const mk = (start, focus) => ({ start, end: start + focus * 1000, mode: 'CUSTOM', focus, desk: focus, blocks: 1, outcome: 'completed' });
+    group('Sync.mergedDay');
+    eq('(setup) the frame knows its device id', g('Sync.deviceId'), 'thisdev');
+    const own1 = { focus: 600, brk: 60, other: 0, blocks: 1, sessions: [mk(1000, 600)] };
+    eq('no other device that day -> this device\'s day, unchanged', merge('2026-05-09', own1), own1);
+    eq('no other device and no day of its own -> undefined (the caller makes an empty day)', merge('2026-05-09', undefined) == null, true);
+    r = merge('2026-05-01', own1);
+    eq('an identical copy on another device is counted once (focus 600, not 1200)', [r.focus, r.brk, r.blocks, r.sessions.length], [600, 60, 1, 1]);
+    r = merge('2026-05-02', undefined);
+    eq('the same backup restored on two other devices, none here: counted once', [r.focus, r.sessions.length], [900, 1]);
+    r = merge('2026-05-02', { focus: 900, brk: 0, other: 0, blocks: 1, sessions: [mk(5000, 900)] });
+    eq('...and again here: still once', [r.focus, r.blocks, r.sessions.length], [900, 1, 1]);
+    const own3 = { focus: 600, brk: 30, other: 10, blocks: 2, sessions: [mk(1000, 300), mk(2000, 300)] };
+    r = merge('2026-05-03', own3);
+    eq('two different devices on the same day add up', [r.focus, r.brk, r.other, r.blocks], [900, 30, 10, 3]);
+    eq('  sessions from both, oldest first', r.sessions.map(s => s.start), [1000, 2000, 9000]);
+    r = merge('2026-05-03', undefined);
+    eq('another device\'s day when this device has none', r.focus, 300);
+    ok('an entry filed under this device\'s own id is ignored (its 99999 s is never added)', r.focus < 99999);
+    setup({}, []);
+    eq('allDayKeys lists other devices\' days (never this device\'s own remote entry\'s)', g('[...Sync.allDayKeys()].sort()'), ['2026-05-01', '2026-05-02', '2026-05-03']);
+
+    // ------------------------------------------------------------ journal.js: averages
+    // jAvg shows "14-day avg x · 30-day avg y". Entries are set directly in the frame.
+    const avgFor = entries => { g(`journal.entries = ${JSON.stringify(entries)}; renderJournalLists();`); return $('jAvg').textContent; };
+    const dayAgo = n => g(`shiftKey('2026-06-17', -${n})`);
+    group('Journal averages');
+    eq('ratingMid: single rating is itself', g('ratingMid({ rating: 7 })'), 7);
+    eq('ratingMid: a range is its midpoint (4-7 -> 5.5)', g('ratingMid({ rating: 4, ratingHigh: 7 })'), 5.5);
+    eq('ratingMid: unrated -> null', [g('ratingMid({ rating: null, text: "hi" })'), g('ratingMid({ text: "hi" })')], [null, null]);
+    eq('ratingMid: a ratingHigh below the rating is ignored', g('ratingMid({ rating: 6, ratingHigh: 2 })'), 6);
+    eq('isRated: an entry with text and no rating is not rated', g('[isRated({ rating: null, text: "x" }), isRated({ rating: 5 }), isRated(null)]'), [false, true, false]);
+    eq('no entries -> "No ratings yet"', avgFor({}), 'No ratings yet');
+    eq('only unrated entries -> "No ratings yet"', avgFor({ [dayAgo(0)]: { rating: null, text: 'just notes', updated: 1 } }), 'No ratings yet');
+    eq('one rating', avgFor({ [dayAgo(0)]: { rating: 8, text: '', updated: 1 } }), '14-day avg 8.0 · 30-day avg 8.0');
+    eq('an unrated entry is left out, not counted as 0',
+      avgFor({ [dayAgo(0)]: { rating: 8, updated: 1 }, [dayAgo(1)]: { rating: null, text: 'notes', updated: 1 }, [dayAgo(2)]: { rating: 4, updated: 1 } }),
+      '14-day avg 6.0 · 30-day avg 6.0');
+    eq('a range counts as its midpoint (8, 4-7, 3 -> (8 + 5.5 + 3) / 3 = 5.5)',
+      avgFor({ [dayAgo(0)]: { rating: 8, updated: 1 }, [dayAgo(2)]: { rating: 4, ratingHigh: 7, updated: 1 }, [dayAgo(3)]: { rating: 3, updated: 1 } }),
+      '14-day avg 5.5 · 30-day avg 5.5');
+    eq('the 30-day average reaches back further than the 14-day one',
+      avgFor({ [dayAgo(0)]: { rating: 8, updated: 1 }, [dayAgo(2)]: { rating: 4, ratingHigh: 7, updated: 1 }, [dayAgo(3)]: { rating: 3, updated: 1 }, [dayAgo(20)]: { rating: 10, updated: 1 } }),
+      '14-day avg 5.5 · 30-day avg 6.6');
+    eq('only entries older than 14 days: no 14-day average',
+      avgFor({ [dayAgo(20)]: { rating: 10, updated: 1 } }), '30-day avg 10.0');
+    eq('entries older than 30 days are in neither', avgFor({ [dayAgo(31)]: { rating: 10, updated: 1 } }), 'No ratings yet');
+    g('journal.entries = {}');
+
+    // ------------------------------------------------------------ timer parity
+    // localtimer.js advance() and cloud upcomingAlerts() keep the phase rules separately. Start both
+    // from the same state and compare when each says a "focus done" / "break over" / "session
+    // complete" alert happens. The built-in timer is stepped 1 ms at a time on the pinned clock.
+    group('Timer parity: localtimer.js and cloud/functions/index.js');
+    let cloud = null;
+    try { cloud = await loadCloud(); } catch (e) { ok('cloud/functions/index.js loads in the browser', false, String(e)); }
+    if (cloud && typeof cloud._upcomingAlerts === 'function') {
+      ok('cloud/functions/index.js loads in the browser (stand-in require, POMEGRANATE_TEST set)', true);
+      const lines = [];
+      const LT = g('LocalTimer');
+      const realHandleLine = w.handleLine;
+      w.handleLine = line => lines.push({ line, t: fakeNow });
+      // what the app shows for each timer event (notify.js messageFor): a final FOCUS_DONE is
+      // replaced by "Session complete"
+      const TITLE = { FOCUS_DONE: 'Focus block done 🎉', REST_DONE: 'Break over', SESSION_ENDED: 'Session complete ✅' };
+      const localAlerts = () => {
+        const ev = lines.filter(x => x.line.startsWith('EVENT ')).map(x => ({ at: x.t, name: x.line.slice(6) }));
+        return ev.filter((e, i) => !(e.name === 'FOCUS_DONE' && ev[i + 1] && ev[i + 1].name === 'SESSION_ENDED' && ev[i + 1].at === e.at))
+          .map(e => ({ at: e.at, title: TITLE[e.name] }));
+      };
+      const savedState = () => JSON.parse(w.localStorage.getItem('pomodoro-local-timer'));
+      const stateNow = () => { const s = [...lines].reverse().find(x => x.line.startsWith('STATE ')); return s ? s.line.match(/state=(\S+)/)[1] : ''; };
+      // Steps the built-in timer from t0 until it has run `until` (or reached a "continue?" stop
+      // and sat there for 5 s). Returns the starting state it saved and the alerts it raised.
+      function driveLocal(t0, begin, until, stopAtContinue) {
+        lines.length = 0;
+        setNow(t0);
+        begin();
+        const start = savedState();
+        let stopped = 0;
+        for (let t = t0 + 1; t <= t0 + until; t++) {
+          setNow(t);
+          LT.command('STATUS');
+          if (stopAtContinue && stateNow() === 'CONTINUE' && ++stopped > 5000) break;
+        }
+        return { start, alerts: localAlerts() };
+      }
+      const finish = t => {   // back to the menu, and let the screens time out
+        setNow(t); LT.command('EXIT'); setNow(t + 10000); LT.command('STATUS');
+      };
+      const S = NOW + 3600e3;
+      const asAlerts = (state) => cloud._upcomingAlerts(state).map(a => ({ at: a.at, title: a.title }));
+
+      // custom session: 1 min focus, 1 min break, 2 cycles
+      let d = driveLocal(S, () => LT.command('START 1 1 2'), 400000, false);
+      eq('(setup) custom session starts in GETREADY with a 6 s countdown', [d.start.st, d.start.phaseEnd - S, d.start.cycles, d.start.auto], ['GETREADY', 6000, 2, false]);
+      eq('custom 1/1 x 2: same alert times and titles from both', asAlerts(d.start), d.alerts);
+      eq('custom 1/1 x 2: expected times (6 s ready, 60 s focus, 2 s screen, 60 s break, 1.5 s screen, 6 s ready, 60 s focus)', d.alerts,
+        [{ at: S + 66000, title: 'Focus block done 🎉' }, { at: S + 128000, title: 'Break over' }, { at: S + 195500, title: 'Session complete ✅' }]);
+      finish(S + 400000);
+
+      // custom session with different focus / break lengths, so swapped fields would show
+      const S2 = S + 3600e3;
+      d = driveLocal(S2, () => LT.command('START 2 1 3'), 700000, false);
+      eq('custom 2/1 x 3: same alert times and titles from both', asAlerts(d.start), d.alerts);
+      eq('custom 2/1 x 3: three focus blocks, two breaks, one "session complete" at the end',
+        d.alerts.map(a => a.title), ['Focus block done 🎉', 'Break over', 'Focus block done 🎉', 'Break over', 'Session complete ✅']);
+      finish(S2 + 700000);
+
+      // auto mode (1 min focus / 1 min break, set up with a shared-session state): up to its first "continue?" stop
+      const S3 = S2 + 3600e3;
+      const autoState = { st: 'GETREADY', pausedFrom: 'FOCUS', auto: true, focus: 1, brk: 1, cycles: 0, cycle: 1, done: 0, total: 0,
+        phaseEnd: S3 + 6000, pausedLeft: 0, screenEnd: 0, sessionStart: S3, owner: 'thisdev', kind: 'local', changed: S3 };
+      d = driveLocal(S3, () => LT.adopt({ s: autoState }), 400000, true);
+      eq('(setup) auto session starts in GETREADY', [d.start.st, d.start.auto], ['GETREADY', true]);
+      eq('auto 1/1: same alert times and titles from both (it stops at "continue?")', asAlerts(d.start), d.alerts);
+      eq('auto 1/1: expected times', d.alerts, [{ at: S3 + 66000, title: 'Focus block done 🎉' }, { at: S3 + 128000, title: 'Break over' }]);
+      eq('auto 1/1: the built-in timer is waiting at "continue?"', stateNow(), 'CONTINUE');
+      finish(S3 + 400000);
+
+      // from a state part-way through (what the cloud function really gets: the state at the last write)
+      const S4 = S3 + 3600e3;
+      d = driveLocal(S4, () => LT.command('START 1 2 2'), 20000, false);
+      lines.length = 0;
+      const mid = S4 + 20000;
+      const midState = savedState();
+      eq('(setup) 20 s in, still in the first focus block', midState.st, 'FOCUS');
+      eq('from a mid-session state, the cloud function still lists the rest', asAlerts(midState).map(a => a.title), ['Focus block done 🎉', 'Break over', 'Session complete ✅']);
+      finish(mid);
+
+      w.handleLine = realHandleLine;
+    } else if (cloud) {
+      ok('cloud/functions/index.js exports _upcomingAlerts', false);
+    }
+  }
+
+  // ---------------------------------------------------------------- start: the app in a frame
+  (async () => {
+    const errors = [];
+    try {
+      const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+      const frame = document.createElement('iframe');
+      frame.title = 'App under test';
+      frame.srcdoc = html.replace(/<head>/i, '<head><script>parent.installFakes(window)<\/script>');
+      const loaded = new Promise(r => frame.addEventListener('load', r, { once: true }));
+      document.body.append(frame);
+      await loaded;
+      const w = frame.contentWindow;
+      w.addEventListener('error', e => errors.push(e.message + ' (' + String(e.filename).split('/').pop() + ':' + e.lineno + ')'));
+      w.addEventListener('unhandledrejection', e => errors.push('unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+      await wait(800);
+      await run(w);
+    } catch (e) {
+      errors.push('test crashed: ' + (e.stack || e));
+    }
+    group('Errors in the app during the run');
+    ok('none', errors.length === 0, errors);
+    const s = document.getElementById('summary');
+    s.textContent = `${pass} passed, ${fail} failed`;
+    s.className = fail ? 'bad' : 'ok';
+    document.title = (fail ? '✕ ' : '✓ ') + 'Pomegranate logic tests';
+  })();
+})();
+</script>
+</body>
+</html>
