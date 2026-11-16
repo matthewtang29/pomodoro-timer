@@ -75,16 +75,10 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ---------------------------------------------------------------- no zooming
-// The layout is built for 100%, so page zoom is turned off: Ctrl/⌘ + plus/minus/0,
-// Ctrl/⌘ + scroll wheel or trackpad pinch, and pinch / double-tap on iPhone
-// (the viewport tag and touch-action in style.css cover the rest).
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && ['=', '+', '-', '_', '0'].includes(e.key)) e.preventDefault();
-});
-document.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
-['gesturestart', 'gesturechange', 'gestureend'].forEach(n => document.addEventListener(n, e => e.preventDefault(), { passive: false }));
-document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// ---------------------------------------------------------------- zooming
+// Page zoom is left to the browser (Ctrl/⌘ + plus/minus, Ctrl/⌘ + scroll wheel, pinch on
+// a phone) so people who need larger text can have it. Ctrl+0 is the one exception: it
+// starts a 25/5 session above, so the browser's "reset zoom" is reached from its menu.
 
 // ---------------------------------------------------------------- taskbar / home-screen shortcuts
 // The app is opened as ./?do=focus or ./?do=add from the shortcut menu

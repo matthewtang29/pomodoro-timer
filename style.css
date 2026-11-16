@@ -153,6 +153,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 /* segmented control: a soft track with the selected item raised */
 .seg { display: inline-flex; gap: 2px; padding: 4px; background: var(--hover); border-radius: 10px; }
 .seg button { height: 32px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 400; }
+@media (max-width: 360px) { .seg { max-width: 100%; } .seg button { padding: 0 9px; } }   /* 320px wide, or 200% zoom on a small screen */
 .seg button:hover:not(:disabled) { color: var(--text); background: transparent; }
 .seg button[aria-pressed="true"], .seg button[aria-pressed="true"]:hover:not(:disabled) {
   background: var(--seg-on); color: var(--text); font-weight: 500; box-shadow: none;
