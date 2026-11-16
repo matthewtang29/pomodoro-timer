@@ -10,6 +10,9 @@ Cloud functions need Firebase's **Blaze** plan, which requires a card on file. A
 1. Open the [Firebase console](https://console.firebase.google.com/), pick **pomodoro-timer-8d10f**.
 2. Click **Upgrade** (bottom of the left sidebar) and choose **Blaze**.
 3. When it offers a budget alert, set one at **$1** so you're emailed if anything ever costs money.
+   (Later: [Google Cloud console → Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets)
+   → **Create budget** → scope: project pomodoro-timer-8d10f, all services → amount → alert thresholds →
+   email billing admins. A budget only emails you; it doesn't stop charges.)
 
 ## 2. Install the tools on your computer
 1. Install **Node.js** (the LTS version) from [nodejs.org](https://nodejs.org).
@@ -60,6 +63,34 @@ On every device (laptop, iPhone, iPad):
   ```
 - **iPhone gets nothing:** alerts only work in the Home Screen version of the app, and only after you've allowed notifications from inside it. Check iPhone Settings → Notifications → Pomegranate.
 - **Changing the key pair:** run `npx web-push generate-vapid-keys`, put the public key in both `push.js` and `functions/index.js`, set the new private key with step 4, deploy, and turn alerts off and on again on each device.
+
+## Abuse protection
+Anyone with a Google account can sign in, so the project is guarded in three layers:
+- **Rules** (`firestore.rules`): each user only touches their own folder, and every write is checked for
+  doc id, field types and sizes. Deploy with `firebase deploy --only firestore:rules`. To undo: Firebase
+  console → **Firestore Database** → **Rules** → pick the previous version in the history list → **Publish**.
+- **Cloud function limits** (`functions/index.js`): a timer write is only used if it looks like one the
+  app makes, and each user can schedule alerts at most 30 times a minute / 300 an hour (test alerts
+  5 / 30). The counters live in `users/{uid}/limits/{timer|test}`. Check with `node test.js` in `functions`.
+- **App Check** (`APP_CHECK_SITE_KEY` in `sync.js`): off until a key is filled in. Turn it on in this order,
+  so signed-in devices aren't locked out:
+  1. [Google Cloud console → Security → reCAPTCHA](https://console.cloud.google.com/security/recaptcha?project=pomodoro-timer-8d10f)
+     → enable the API if asked → **Create key**: type **Website**, domain `matthewtang29.github.io`
+     (add `localhost` too to test locally), leave the checkbox challenge off → copy the **key ID**.
+  2. Firebase console → **App Check** → **Apps** → the web app → **reCAPTCHA Enterprise** → paste the key ID
+     → **Save**. Don't press Enforce anywhere yet.
+  3. Paste the key ID into `APP_CHECK_SITE_KEY` in `sync.js`, bump `CACHE` in `sw.js` and the `?v=` values
+     in `index.html`, and publish the site.
+  4. Open the app once on every device you use (from the Home Screen icon on iPhone/iPad), and reload it
+     so the new version runs.
+  5. Wait at least 7 days (longer if a device is rarely used), checking Firebase console → **App Check** →
+     **APIs** → **Cloud Firestore** → the request metrics. **Verified** requests come from the updated
+     app; **Outdated client** requests come from copies still on the old version, which enforcement
+     would block; **Unknown origin** / **Invalid** ones are scripts or other sites. It's safe to go on
+     once verified requests are nearly all of the app's traffic and outdated client requests have
+     been at zero for a few days.
+  6. Same page → **Enforce** → confirm. It takes up to 15 minutes to apply. Then use the app on each
+     device to check sync still works. To undo: same page → **Unenforce**.
 
 ## Desk robot: Claude Code status
 A script on the laptop (run by Claude Code hooks and the status line) writes one doc with the Admin SDK:

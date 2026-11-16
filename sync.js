@@ -34,6 +34,10 @@ const FIREBASE_CONFIG = {
   appId: '1:643123974057:web:dcdfaa558cf59c3c573eb8',
 };
 const FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
+// App Check: proves requests come from this app on its own site, not a script using the
+// public config above. Paste the reCAPTCHA Enterprise site key here once it's created
+// (cloud/SETUP.md, "App Check"). Empty: App Check is off and nothing extra is loaded.
+const APP_CHECK_SITE_KEY = '';
 
 const Sync = (() => {
   const LS = {
@@ -238,10 +242,15 @@ const Sync = (() => {
     if (!sdkPromise) {
       sdkPromise = (window.firebase ? Promise.resolve() :
         loadScript(FIREBASE_SDK + 'firebase-app-compat.js')
-          .then(() => Promise.all([loadScript(FIREBASE_SDK + 'firebase-auth-compat.js'), loadScript(FIREBASE_SDK + 'firebase-firestore-compat.js')])))
+          .then(() => Promise.all([loadScript(FIREBASE_SDK + 'firebase-auth-compat.js'), loadScript(FIREBASE_SDK + 'firebase-firestore-compat.js'),
+            ...(APP_CHECK_SITE_KEY ? [loadScript(FIREBASE_SDK + 'firebase-app-check-compat.js')] : [])])))
         .then(() => {
           fb = window.firebase;
-          if (!fb.apps || !fb.apps.length) fb.initializeApp(FIREBASE_CONFIG);
+          if (!fb.apps || !fb.apps.length) {
+            fb.initializeApp(FIREBASE_CONFIG);
+            // must be on before the first Firestore or Auth request; true = keep the token fresh
+            if (APP_CHECK_SITE_KEY) fb.appCheck().activate(new fb.appCheck.ReCaptchaEnterpriseProvider(APP_CHECK_SITE_KEY), true);
+          }
           auth = fb.auth();
           db = fb.firestore();
           auth.onAuthStateChanged(u => (u ? onSignedIn(u) : onSignedOut()));
@@ -622,8 +631,9 @@ const Sync = (() => {
 
   // Delete everything this account has in the cloud, then the sign-in account itself.
   // This device keeps its own copy (Back up / Clear in Settings handle that).
-  // ('robot' holds the laptop-written Claude Code status; the rules allow the owner to delete it, for this)
-  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot'];
+  // ('robot' holds the laptop-written Claude Code status and 'limits' the cloud function's rate-limit
+  // counters; the rules allow the owner to delete both, for this)
+  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot', 'limits'];
   async function deleteCloudData() {
     if (!user) return;
     if (!confirm('Delete all your Pomegranate data from the cloud and remove your sign-in?\n\n' +

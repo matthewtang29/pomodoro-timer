@@ -53,17 +53,7 @@ Sync uses Firebase Authentication (Google sign-in) and Cloud Firestore. Tasks an
 
 **Closed-app alerts:** each device registers for Web Push. When the shared session changes, a Firebase cloud function (`cloud/functions`) works out every upcoming focus/break ending and schedules a Cloud Task for each one, which sends the alert at that exact time unless the session has changed since. Setup steps are in [cloud/SETUP.md](cloud/SETUP.md). This part needs Firebase's pay-as-you-go plan, but stays within the free allowances.
 
-Firestore security rules (only the signed-in user can read or write their own data):
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}
-```
+Firestore security rules: see [cloud/firestore.rules](cloud/firestore.rules). Each signed-in user can read and write only their own `users/{uid}/...` folders, and every write is checked for shape and size; the file maps each rule to the code that writes that data.
 
 ## Project structure
 ```

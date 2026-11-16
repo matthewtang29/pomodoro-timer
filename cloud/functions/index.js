@@ -11,6 +11,11 @@
 //    (paused, exited...) and sends a Web Push alert to each device in users/{uid}/push.
 //
 // Writing users/{uid}/live/test sends a test alert straight away.
+//
+// Abuse guards (sign-in is open to any Google account, and tasks cost money past the free
+// allowance): a timer write is only used if its state looks like one the app makes
+// (validState), and each user may schedule alerts / send test alerts only so often
+// (LIMITS, counted in users/{uid}/limits/{timer|test}).
 
 const { setGlobalOptions, logger } = require('firebase-functions/v2');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
@@ -93,6 +98,67 @@ function upcomingAlerts(state) {
   return out;
 }
 
+// ---------------------------------------------------------------- checks
+// Every state the app can write to live/timer (localtimer.js, and livesync.js physical()
+// for a physical timer). Only the first five have alerts still to come; the rest
+// (paused, waiting at "continue?", finished) schedule nothing.
+const SCHEDULING_STATES = ['GETREADY', 'FOCUS', 'FOCUS_DONE', 'REST', 'CHECKPOINT'];
+const KNOWN_STATES = [...SCHEDULING_STATES, 'PAUSED', 'CONTINUE', 'ENDED', 'EXITED', 'SUMMARY', 'MENU'];
+const DAY_MS = 864e5;
+
+// Is s a session state the app could have written, close enough to now to act on?
+// Limits match the app: focus and break 1–99 minutes, 0–20 cycles (0 = auto mode).
+function validState(s, now) {
+  if (!s || typeof s !== 'object' || !KNOWN_STATES.includes(s.st)) return false;
+  const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
+  const near = v => Number.isFinite(v) && Math.abs(v - now) <= DAY_MS;
+  const optCount = v => v == null || inRange(v, 0, 1e6);
+  if (!inRange(s.focus, 1, 99) || !inRange(s.brk, 1, 99) || !inRange(s.cycles, 0, 20)) return false;
+  if (!inRange(s.cycle, 0, 1000)) return false;   // auto mode counts cycles up with no set end
+  if (!optCount(s.done) || !optCount(s.total)) return false;
+  // the end of the current phase (or of the short screen between phases)
+  if (['GETREADY', 'FOCUS', 'REST'].includes(s.st) && !near(s.phaseEnd)) return false;
+  if (['FOCUS_DONE', 'CHECKPOINT'].includes(s.st) && !near(s.screenEnd)) return false;
+  return true;
+}
+// rev becomes part of each Cloud Task id (livesync.js newId(): base36)
+const validRev = rev => typeof rev === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(rev);
+
+// ---------------------------------------------------------------- rate limits
+// Per user and kind, at most perMinute uses in any 60 s and perHour in any hour. Only
+// writes that would schedule alerts count (pause, exit... schedule nothing, so they're free).
+// timer: normal use is a handful of writes a minute at most (start, pause, resume, exit;
+// a physical timer also writes each phase change), so 30 can't be reached by hand. A
+// blocked write isn't scheduled; the next allowed one schedules from the newest state.
+// Every attempt is recorded, blocked ones too, so a script that keeps writing stays blocked.
+const LIMITS = {
+  timer: { perMinute: 30, perHour: 300 },
+  test: { perMinute: 5, perHour: 30 },
+};
+
+// times: when it was used before (ms). Returns whether this use is allowed, and the
+// times to store (the last hour only, at most perHour + 1 of them).
+function checkLimit(times, now, limit) {
+  const recent = (Array.isArray(times) ? times : [])
+    .filter(t => Number.isFinite(t) && t > now - 3600e3 && t <= now + 60000);
+  const lastMinute = recent.filter(t => t > now - 60000).length;
+  const ok = lastMinute < limit.perMinute && recent.length < limit.perHour;
+  recent.push(now);
+  return { ok, times: recent.slice(-(limit.perHour + 1)) };
+}
+
+// Counts one use in users/{uid}/limits/{name}. If the count can't be updated (e.g. many
+// writes at once keep colliding), it throws and nothing is sent: blocked rather than let through.
+async function allowed(uid, name) {
+  const ref = db.doc(`users/${uid}/limits/${name}`);
+  return db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    const { ok, times } = checkLimit(snap.exists ? snap.data().times : [], Date.now(), LIMITS[name]);
+    tx.set(ref, { times });
+    return ok;
+  });
+}
+
 async function sendToAllDevices(uid, payload) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE.value());
   const devices = await db.collection(`users/${uid}/push`).get();
@@ -115,7 +181,8 @@ exports.scheduleTimerAlerts = onDocumentWritten(
     const { uid, docId } = event.params;
 
     if (docId === 'test') {
-      if (Date.now() - (after.at || 0) > 60000) return;
+      if (!Number.isFinite(after.at) || Math.abs(Date.now() - after.at) > 60000) return;
+      if (!await allowed(uid, 'test')) { logger.warn('test alert rate-limited', { uid }); return; }
       await sendToAllDevices(uid, {
         title: 'Test alert ✅', body: 'Pomegranate alerts are working on this device.', tag: 'pomegranate-test', test: true,
       });
@@ -124,8 +191,10 @@ exports.scheduleTimerAlerts = onDocumentWritten(
     if (docId !== 'timer' || !after.s || !after.rev) return;
 
     const now = Date.now();
+    if (!validRev(after.rev) || !validState(after.s, now)) return;
     const alerts = upcomingAlerts(after.s).filter(a => a.at > now - 5000).slice(0, 60);
     if (!alerts.length) return;
+    if (!await allowed(uid, 'timer')) { logger.warn('timer alerts rate-limited', { uid }); return; }
     const queue = getFunctions().taskQueue(`locations/${REGION}/functions/sendTimerAlert`);
     await Promise.all(alerts.map((a, i) => queue.enqueue(
       { uid, rev: after.rev, title: a.title, body: a.body },
@@ -148,4 +217,9 @@ exports.sendTimerAlert = onTaskDispatched(
   },
 );
 
-if (process.env.POMEGRANATE_TEST) exports._upcomingAlerts = upcomingAlerts;   // for tests
+if (process.env.POMEGRANATE_TEST) {   // for tests (test.js)
+  exports._upcomingAlerts = upcomingAlerts;
+  exports._validState = validState;
+  exports._checkLimit = checkLimit;
+  exports._LIMITS = LIMITS;
+}

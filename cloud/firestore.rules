@@ -2,23 +2,231 @@ rules_version = '2';
 
 // Pomegranate database rules.
 // Each signed-in person can read and write only their own folder, users/{their uid}/...,
-// and only the folders the app uses. Everything else is closed. The cloud functions use
-// the admin SDK, which isn't affected by these rules.
+// and only the folders the app uses. Everything else is closed. The cloud functions and the
+// laptop's desk-robot script use the admin SDK, which isn't affected by these rules.
+//
+// Every write is also checked for shape: doc ids must look like the ones the app makes,
+// the fields the app relies on must have the right type, and anything that can grow
+// (text, lists, maps) has a size limit. The limits are deliberately generous: Sync sends
+// changes in batches, and one rejected doc fails its whole batch, so a limit a real user
+// can reach would quietly stop their sync. Rules can't measure a whole document, so
+// Firestore's own 1 MiB per document is the final cap; these keep each field sensible.
+// Rules also can't count documents: how many docs a user can make is not limited here.
+//
+// tasks and journal docs accept extra keys (older data has fields the app no longer
+// writes, and the journal will gain a videos list); the other collections are bounded by
+// key count instead.
+//
+// Deletes need no shape check, only the right owner.
 //
 // Deploy from the cloud folder:  firebase deploy --only firestore:rules
 // (or paste this into Firebase console -> Firestore Database -> Rules -> Publish)
+// To undo a deploy: Firebase console -> Firestore Database -> Rules -> the history list on
+// the left -> pick the previous version -> Publish.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{uid}/{kind}/{docId} {
-      allow read, write: if request.auth != null
-        && request.auth.uid == uid
-        && kind in ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push'];
-    }
-    // Claude Code status for the desk robot (users/{uid}/robot/claude). Written only by the
-    // laptop script with the Admin SDK, which skips these rules. The owner can read it, and
-    // delete it (account cleanup in Settings); no client can create or change it.
-    match /users/{uid}/robot/{docId} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
+
+    // ---------------------------------------------------------------- helpers
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    // ids the app makes: tasks/habits Date.now().toString(36) + random, device ids random base36
+    function idOk(id) { return id.matches('^[A-Za-z0-9_-]{1,64}$'); }
+    // YYYY-MM-DD (dayKey() in analytics.js)
+    function dateOk(id) { return id.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    // optional fields: missing or null, or else the given type (and size)
+    function optStr(d, k, max) { return d.get(k, null) == null || (d[k] is string && d[k].size() <= max); }
+    function optNum(d, k) { return d.get(k, null) == null || d[k] is number; }
+    function optList(d, k, max) { return d.get(k, null) == null || (d[k] is list && d[k].size() <= max); }
+    function optMap(d, k, max) { return d.get(k, null) == null || (d[k] is map && d[k].size() <= max); }
+    // deletion marker for tasks / journal / habits / sleep: { deleted: true, u }
+    function tomb(d) { return d.get('deleted', false) == true && d.keys().hasOnly(['deleted', 'u']) && optNum(d, 'u'); }
+
+    match /users/{uid} {
+
+      // ---------------------------------------------------------------- tasks/{taskId}
+      // rule                                         | written by
+      // idOk(taskId)                                 | tasks.js newId(): Date.now().toString(36) + 5 random
+      // tomb(d)                                      | sync.js flush(): { deleted: true, u: tomb.tasks[id] }
+      // title: string <= 5000                        | tasks.js addTask() / editor (cleanTasks() needs a string title)
+      // project: string <= 500 (or missing/null)     | tasks.js addTask(): project || ''; deleteProject(); editor
+      // subtasks: list <= 1000 (or missing/null)     | tasks.js addSubtask(): [{ id, title, done }]
+      // u: number (or missing)                       | sync.js stamp(); missing on items saved before sync existed
+      // <= 100 keys, any other keys allowed          | due, priority, difficulty, created, done, focusSec, repeat,
+      //                                              | spawned, legacy fields (sync.js flush(): clean(t))
+      match /tasks/{taskId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && idOk(taskId) && (tomb(request.resource.data) || task(request.resource.data));
+        function task(d) {
+          return d.size() <= 100 && d.get('title', null) is string && d.title.size() <= 5000
+            && optStr(d, 'project', 500) && optList(d, 'subtasks', 1000) && optNum(d, 'u');
+        }
+      }
+
+      // ---------------------------------------------------------------- journal/{YYYY-MM-DD}
+      // rule                                         | written by
+      // dateOk(day)                                  | journal.js saveEntry(): journal.entries[jDate], jDate = dayKey()
+      // tomb(d)                                      | sync.js flush(): { deleted: true, u: tomb.journal[id] }
+      // rating, ratingHigh: number, null or missing  | journal.js saveEntry(): rating: jRating || null; ratingHigh only for a range
+      // text: string <= 200000 (or missing/null)     | journal.js saveEntry(): $('jText').value.trim()
+      // updated, u: number (or missing)              | journal.js saveEntry() / sync.js stamp()
+      // videos: list <= 50 (or missing/null)         | video journal (coming): [{ id, at, dur, size, mime, device, uploaded }]
+      // <= 100 keys, any other keys allowed          | legacy fields (sync.js flush(): clean(e))
+      match /journal/{day} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && dateOk(day) && (tomb(request.resource.data) || entry(request.resource.data));
+        function entry(d) {
+          return d.size() <= 100 && optNum(d, 'rating') && optNum(d, 'ratingHigh') && optStr(d, 'text', 200000)
+            && optNum(d, 'updated') && optNum(d, 'u') && optList(d, 'videos', 50);
+        }
+      }
+
+      // ---------------------------------------------------------------- habits/{habitId}
+      // rule                                         | written by
+      // idOk(habitId)                                | habits.js addHabit(): 'h' + Date.now().toString(36) + 4 random
+      // tomb(d)                                      | sync.js flush(): { deleted: true, u: tomb.habits[id] }
+      // name: string <= 500                          | habits.js addHabit() / renameHabit() (capped at 60 there)
+      // checks: map <= 20000 days (or missing/null)  | habits.js cycleCheck(): { 'YYYY-MM-DD': 1 | 0 }
+      // created, order, u: number (or missing)       | habits.js addHabit() / sync.js stamp()
+      // <= 30 keys                                   | sync.js flush(): clean(h) = { id, name, created, order, checks, u }
+      match /habits/{habitId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && idOk(habitId) && (tomb(request.resource.data) || habit(request.resource.data));
+        function habit(d) {
+          return d.size() <= 30 && d.get('name', null) is string && d.name.size() <= 500
+            && optMap(d, 'checks', 20000) && optNum(d, 'created') && optNum(d, 'order') && optNum(d, 'u');
+        }
+      }
+
+      // ---------------------------------------------------------------- sleep/{YYYY-MM-DD}
+      // rule                                         | written by
+      // dateOk(day)                                  | sleep.js saveSleepEntry(): sleepLog.entries[$('sDate').value]
+      // tomb(d)                                      | sync.js flush(): { deleted: true, u: tomb.sleep[id] }
+      // bed, wake: string <= 16 (or missing/null)    | sleep.js saveSleepEntry(): 'HH:MM' from <input type=time>
+      // quality: number, null or missing             | sleep.js saveSleepEntry(): sQuality (1-5 or null)
+      // u: number (or missing)                       | sync.js stamp()
+      // <= 20 keys                                   | sync.js flush(): clean(e) = { bed, wake, quality, u }
+      match /sleep/{day} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && dateOk(day) && (tomb(request.resource.data) || night(request.resource.data));
+        function night(d) {
+          return d.size() <= 20 && optStr(d, 'bed', 16) && optStr(d, 'wake', 16) && optNum(d, 'quality') && optNum(d, 'u');
+        }
+      }
+
+      // ---------------------------------------------------------------- days/{YYYY-MM-DD}__{deviceId}
+      // rule                                         | written by
+      // id = date + '__' + device                    | sync.js flush(): col('days').doc(`${date}__${deviceId}`)
+      // date: YYYY-MM-DD, device: id-like string     | sync.js flush(): { ...clean(d), date, device: deviceId, u }
+      // u: number                                    | sync.js flush(): u: d.u || now()
+      // focus, brk, other, blocks: number/null/none  | analytics.js emptyDay() / trackState() (seconds; NaN arrives as null)
+      // sessions: list <= 2000 (or missing/null)     | analytics.js trackState(): one record per session that day
+      // <= 40 keys                                   | the day object as stored by analytics.js
+      // (delete)                                     | sync.js flush() for a removed day, clearDays(), deleteCloudData()
+      match /days/{dayId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && day(dayId, request.resource.data);
+        function day(id, d) {
+          return id.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}__[A-Za-z0-9_-]{1,64}$')
+            && d.size() <= 40 && d.get('date', null) is string && d.get('device', null) is string
+            && id == d.date + '__' + d.device && d.get('u', null) is number
+            && optNum(d, 'focus') && optNum(d, 'brk') && optNum(d, 'other') && optNum(d, 'blocks')
+            && optList(d, 'sessions', 2000);
+        }
+      }
+
+      // ---------------------------------------------------------------- meta/settings
+      // rule                                         | written by
+      // id 'settings' only                           | sync.js flush(): col('meta').doc('settings')
+      // goal: number                                 | sync.js flush(): goal: focusGoalMin (score.js)
+      // u: number (or missing)                       | sync.js flush(): u: metaU || now()
+      // <= 10 keys                                   | { goal, u }
+      match /meta/{docId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && docId == 'settings' && request.resource.data.size() <= 10
+          && request.resource.data.get('goal', null) is number && optNum(request.resource.data, 'u');
+      }
+
+      // ---------------------------------------------------------------- devices/{deviceId}
+      // rule                                         | written by
+      // idOk(deviceId)                               | sync.js: deviceId = Math.random().toString(36).slice(2, 10)
+      // name: string <= 200, lastSeen: number        | sync.js begin(): { name: deviceName, lastSeen: now() }
+      // <= 10 keys                                   |
+      match /devices/{deviceId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && idOk(deviceId) && request.resource.data.size() <= 10
+          && optStr(request.resource.data, 'name', 200) && optNum(request.resource.data, 'lastSeen');
+      }
+
+      // ---------------------------------------------------------------- live/timer, live/test
+      // rule                                         | written by
+      // id 'timer'                                   | livesync.js write(): { s, rev, by, byName, updated }
+      //   s: map <= 40 keys, s.st: string <= 32      |   s = localtimer.js state (16 keys) or livesync.js physical() (16 keys)
+      //   rev, by: string <= 64; byName: <= 200      |   rev = newId(), by = Sync.deviceId, byName = Sync.deviceName
+      //   updated: number (or missing)               |   s.changed || Date.now()
+      // id 'test'                                    | push.js test(): { at: Date.now(), by: Sync.deviceId }
+      //   at: number, by: string <= 64               |
+      // (the cloud function checks s properly before scheduling anything; see functions/index.js)
+      match /live/{docId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && (
+          (docId == 'timer' && liveTimer(request.resource.data)) ||
+          (docId == 'test' && liveTest(request.resource.data)));
+        function liveTimer(d) {
+          return d.size() <= 10 && d.get('s', null) is map && d.s.size() <= 40 && optStr(d.s, 'st', 32)
+            && optStr(d, 'rev', 64) && optStr(d, 'by', 64) && optStr(d, 'byName', 200) && optNum(d, 'updated');
+        }
+        function liveTest(d) {
+          return d.size() <= 5 && d.get('at', null) is number && optStr(d, 'by', 64);
+        }
+      }
+
+      // ---------------------------------------------------------------- relay/cmd
+      // rule                                         | written by
+      // id 'cmd' only                                | livesync.js relay(): relayDoc() = users/{uid}/relay/cmd
+      // cmd: string <= 16                            | 'PAUSE' | 'RESUME' | 'EXIT' | 'YES' | 'NO' (localtimer.js CONTROLS)
+      // id, by: string <= 64; at: number             | { cmd, id: newId(), by: Sync.deviceId, at: Date.now() }
+      // <= 8 keys                                    |
+      match /relay/{docId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && docId == 'cmd' && request.resource.data.size() <= 8
+          && request.resource.data.get('cmd', null) is string && request.resource.data.cmd.size() <= 16
+          && optStr(request.resource.data, 'id', 64) && optStr(request.resource.data, 'by', 64)
+          && optNum(request.resource.data, 'at');
+      }
+
+      // ---------------------------------------------------------------- push/{deviceId}
+      // rule                                         | written by
+      // idOk(deviceId)                               | push.js myDoc(): users/{uid}/push/{Sync.deviceId}
+      // sub: map <= 5 keys                           | push.js sync(): sub.toJSON() = { endpoint, expirationTime, keys }
+      //   sub.endpoint: https URL <= 2048            |   the browser's push service URL (the cloud function posts to it)
+      //   sub.keys: map <= 5 (or missing/null)       |   { p256dh, auth }
+      // name: string <= 200, updated: number         | { sub, name: Sync.deviceName, updated: Date.now() }
+      // <= 6 keys                                    |
+      match /push/{deviceId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && idOk(deviceId) && pushSub(request.resource.data);
+        function pushSub(d) {
+          return d.size() <= 6 && d.get('sub', null) is map && d.sub.size() <= 5
+            && d.sub.get('endpoint', null) is string && d.sub.endpoint.size() <= 2048 && d.sub.endpoint.matches('^https://.+')
+            && optMap(d.sub, 'keys', 5) && optNum(d.sub, 'expirationTime')
+            && optStr(d, 'name', 200) && optNum(d, 'updated');
+        }
+      }
+
+      // ---------------------------------------------------------------- robot/claude
+      // Claude Code status for the desk robot (users/{uid}/robot/claude). Written only by the
+      // laptop script with the Admin SDK, which skips these rules. The owner can read it, and
+      // delete it (account cleanup in Settings); no client can create or change it.
+      match /robot/{docId} {
+        allow read, delete: if owner(uid);
+      }
+
+      // ---------------------------------------------------------------- limits/{name}
+      // Per-user rate-limit counters kept by the cloud function (functions/index.js:
+      // users/{uid}/limits/timer and /test). Written only with the admin SDK. The owner can
+      // read and delete them (account cleanup in Settings); no client can create or change them.
+      match /limits/{docId} {
+        allow read, delete: if owner(uid);
+      }
     }
   }
 }
