@@ -74,7 +74,7 @@ shortcuts.js                    Keyboard shortcuts and the quick-add box
 main.js                         Tabs, install-as-app, start-up
 manifest.webmanifest, sw.js     Installable app (PWA) setup
 icons/                          App icons and robot mascots (icons/bots/)
-fonts/                          Bungee and Nunito (SIL Open Font License), stored locally so the app works offline
+fonts/                          Inter (SIL Open Font License), stored locally so the app works offline
 cloud/                          Firebase cloud function that sends timer alerts (see cloud/SETUP.md)
 firmware/                       Arduino timer code (see firmware/README.md)
 ```

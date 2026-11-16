@@ -2,16 +2,33 @@
 // Files come from the saved copy right away; each one is re-checked with GitHub in
 // the background, so an update you push is used from the next launch (and an open
 // window offers to reload into it straight away).
-const CACHE = 'pomegranate-v44';
+const CACHE = 'pomegranate-v45';
 const ASSETS = [
-  './', 'index.html', 'style.css',
+  'index.html', 'style.css',
   'boardsync.js', 'claudestatus.js', 'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'habits.js', 'sleep.js', 'dashboard.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'fonts/inter.woff2',
 ];
 
+// One saved copy per file: the cache key is the file's address without the ?v= release
+// number the page adds (and every launch URL, ./?do=add…, is the one index.html), so an
+// update replaces the copy in place instead of piling up ?v= variants.
+function cacheKey(url, nav) {
+  const u = new URL(url, self.registration.scope);
+  if (nav) return new URL('index.html', self.registration.scope).href;
+  u.searchParams.delete('v');
+  u.hash = '';
+  return u.href;
+}
+
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then(c => Promise.all(ASSETS.map(async u => {
+      const res = await fetch(new Request(u, { cache: 'reload' }));
+      if (!res.ok) throw new Error(u + ' ' + res.status);
+      await c.put(cacheKey(u), res);
+    })))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -31,7 +48,7 @@ self.addEventListener('fetch', e => {
   // privacy.html are their own files)
   const scopePath = new URL(self.registration.scope).pathname;
   const nav = req.mode === 'navigate' && (url.pathname === scopePath || url.pathname === scopePath + 'index.html');
-  const key = nav ? new URL('index.html', self.registration.scope).href : req;   // every launch URL (?do=add…) is the same page
+  const key = cacheKey(req.url, nav);
 
   const work = (async () => {
     const cache = await caches.open(CACHE);
@@ -54,7 +71,7 @@ self.addEventListener('fetch', e => {
     if (cached) return cached;
     try { return await fresh; }
     catch (err) {   // offline and never saved
-      return (await caches.match(req, { ignoreSearch: true })) || (nav ? caches.match('index.html') : Response.error());
+      return (await caches.match(key)) || Response.error();
       // (a page that was never opened online, like privacy.html, just shows the browser's offline page)
     }
   }));
