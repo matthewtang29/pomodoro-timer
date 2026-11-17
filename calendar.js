@@ -68,10 +68,6 @@ function renderCalendar() {
     const mchips = jx && typeof moodChips === 'function' ? moodChips(jx, true) : null;
     if (mchips) { mchips.className = 'c-moods'; cell.append(mchips); }
 
-    // hours slept the night before (filed under the morning you woke up)
-    const se = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
-    const slept = se ? sleepMinutes(se) : 0;
-    if (se) cell.append(el('div', 'c-sleep ' + sleepCls(slept), '😴 ' + fmtSleepShort(slept)));
     if (cam) badges.prepend(cam);
 
     const due = tasksDueOn(k);
@@ -96,7 +92,6 @@ function renderCalendar() {
     const jc = je ? entryClips(je) : null;
     if (jc) label.push(`${jc.n} video clip${jc.n === 1 ? '' : 's'}, ${fmtClipLen(jc.dur)}`);
     if (sc) label.push(`productivity score ${sc.score}`);
-    if (se) label.push(`slept ${fmtSleep(slept)}`);
     if (due.length) label.push(`${due.length} task${due.length > 1 ? 's' : ''} due`);
     cell.setAttribute('aria-label', label.join(', '));
     cell.setAttribute('aria-pressed', String(k === calSelected));

@@ -495,10 +495,6 @@ pre#log {
 .day-sleep { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .day-sleep button { margin-left: auto; }
 .day-sleep-times { color: var(--muted); }
-/* hours slept on the calendar */
-.c-sleep { font-size: 11px; line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
-.c-sleep.good { color: var(--accent-soft); }
-.c-sleep.short { color: var(--peach-ink); }
 
 /* ======================================================= sleep */
 .sleep-form { display: flex; flex-direction: column; gap: 6px; }
@@ -548,7 +544,6 @@ pre#log {
   .s-row { grid-template-columns: 1fr auto; }
   .s-q { display: none; }
   .s-times { grid-row: 2; grid-column: 1; }
-  .c-sleep { font-size: 9.5px; }
 }
 
 /* ======================================================= journal */
