@@ -13,6 +13,9 @@ let jRangeStart = null; // first click of a range, waiting for the second
 let jDirty = false;
 let jAutoTimer = null;
 let jShowAll = false;
+let jMoods = [];        // mood tags picked for the day (ids from MOODS)
+let jImportant = false; // starred as an important day
+let jOnlyImportant = false; // entries list shows starred days only
 
 // drop anything that isn't an entry object, so a bad backup or old data can't crash rendering
 function cleanEntries(entries) {
@@ -52,9 +55,64 @@ function ratingLo(e) { return isRated(e) ? e.rating : null; }
 function ratingHi(e) { return !isRated(e) ? null : e.ratingHigh > e.rating ? e.ratingHigh : e.rating; }
 function ratingMid(e) { return isRated(e) ? (ratingLo(e) + ratingHi(e)) / 2 : null; }
 function ratingText(lo, hi) { return lo == null ? '' : hi && hi !== lo ? `${lo}–${hi}` : String(lo); }
-// worth keeping: a rating, some text, or video clips (journalvideo.js)
+// worth keeping: a rating, some text, video clips (journalvideo.js), moods or a star
 function entryHasContent(e) {
-  return isRated(e) || (typeof e.text === 'string' && e.text.trim() !== '') || (Array.isArray(e.videos) && e.videos.length > 0);
+  return isRated(e) || (typeof e.text === 'string' && e.text.trim() !== '') || (Array.isArray(e.videos) && e.videos.length > 0)
+    || isImportant(e) || entryMoods(e).length > 0;
+}
+
+// ---------------------------------------------------------------- important days and moods
+// entry.important: true marks a day worth coming back to (a star on the calendar and in lists).
+// entry.moods: list of mood ids from MOODS. Both are left off the entry when unset.
+const MOODS = [
+  ['happy', '😊', 'Happy'], ['fun', '🎉', 'Fun'], ['excited', '🤩', 'Excited'], ['grateful', '🙏', 'Grateful'],
+  ['calm', '😌', 'Calm'], ['studious', '📚', 'Studious'], ['productive', '💪', 'Productive'], ['reflective', '🤔', 'Reflective'],
+  ['tired', '😴', 'Tired'], ['stressed', '😣', 'Stressed'], ['anxious', '😰', 'Anxious'], ['sad', '😢', 'Sad'],
+  ['angry', '😠', 'Angry'], ['sick', '🤒', 'Sick'],
+].map(([id, icon, name]) => ({ id, icon, name }));
+const MOOD_BY_ID = Object.fromEntries(MOODS.map(m => [m.id, m]));
+
+function isImportant(e) { return !!e && e.important === true; }
+// known moods on an entry, in MOODS order (ids this version doesn't know are skipped here but kept on the entry)
+function entryMoods(e) {
+  const have = e && Array.isArray(e.moods) ? e.moods : [];
+  return MOODS.filter(m => have.includes(m.id));
+}
+function moodNames(e) { return entryMoods(e).map(m => m.name.toLowerCase()).join(', '); }
+// "📚 Studious" chips (or icons only) for lists and the calendar day panel
+function moodChips(e, iconsOnly) {
+  const ms = entryMoods(e);
+  if (!ms.length) return null;
+  const box = el('span', 'j-moods');
+  ms.forEach(m => {
+    const c = el('span', 'j-mood-chip', iconsOnly ? m.icon : `${m.icon} ${m.name}`);
+    c.title = m.name;
+    box.append(c);
+  });
+  return box;
+}
+function starMarker(cls) {
+  const s = el('span', cls || 'j-star', '★');
+  s.title = 'Important day';
+  return s;
+}
+
+// Star / unstar a day from outside the editor (the calendar). Creates the entry if needed and
+// deletes it when unstarring leaves it empty.
+function setImportant(k, on) {
+  if (k === jDate) flushJournal();
+  const e = journalEntry(k);
+  if (on) {
+    const x = e || (journal.entries[k] = { rating: null, text: '' });
+    x.important = true;
+    x.updated = Date.now();
+  } else if (e) {
+    delete e.important;
+    e.updated = Date.now();
+    if (!entryHasContent(e)) delete journal.entries[k];
+  }
+  saveJournal();
+  if (k === jDate && !jDirty) loadEditor(k);
 }
 
 // video clips on a day: { n, dur } or null (the clips themselves live in journalvideo.js)
@@ -149,9 +207,40 @@ function clearRating() {
   paintRating();
 }
 
+function buildMoodPicker() {
+  const box = $('jMoods');
+  box.textContent = '';
+  MOODS.forEach(m => {
+    const b = el('button', 'j-mood-btn');
+    b.type = 'button';
+    b.dataset.mood = m.id;
+    b.setAttribute('aria-pressed', 'false');
+    b.append(el('span', 'j-mood-icon', m.icon), m.name);
+    b.addEventListener('click', () => {
+      jMoods = jMoods.includes(m.id) ? jMoods.filter(x => x !== m.id) : [...jMoods, m.id];
+      markDirty();
+      paintMoods();
+    });
+    box.append(b);
+  });
+}
+function paintMoods() {
+  $('jMoods').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(jMoods.includes(b.dataset.mood))));
+  const n = jMoods.filter(id => MOOD_BY_ID[id]).length;
+  $('jMoodsLabel').textContent = n ? `${n} picked` : 'Optional: pick any that fit';
+}
+function paintStar() {
+  const b = $('jStar');
+  b.setAttribute('aria-pressed', String(jImportant));
+  b.textContent = jImportant ? '★ Important day' : '☆ Mark as important';
+  b.title = jImportant ? 'Starred: highlighted on the calendar. Click to unstar.' : 'Star this day so it stands out on the calendar and is easy to find again';
+}
+
 function loadEditor(k) {
   jDate = k;
   const e = journalEntry(k);
+  jMoods = e && Array.isArray(e.moods) ? e.moods.filter(x => typeof x === 'string') : [];
+  jImportant = isImportant(e);
   jRating = e ? ratingLo(e) : null;
   jHigh = e && ratingHi(e) !== ratingLo(e) ? ratingHi(e) : null;
   jRange = !!jHigh;
@@ -170,6 +259,8 @@ function loadEditor(k) {
   jDirty = false;
   setStatus(e ? `Saved ${fmtSavedTime(e.updated)}` : '');
   paintRating();
+  paintMoods();
+  paintStar();
   if (typeof JournalVideo !== 'undefined') JournalVideo.renderClips();
 }
 
@@ -198,18 +289,20 @@ function saveEntry(auto) {
   const old = journalEntry(k);
   const next = { ...(old || {}), rating: jRating || null, text: $('jText').value.trim(), updated: Date.now() };
   if (jHigh && jHigh > jRating) next.ratingHigh = jHigh; else delete next.ratingHigh;
+  if (jMoods.length) next.moods = [...jMoods]; else delete next.moods;
+  if (jImportant) next.important = true; else delete next.important;
 
   if (!entryHasContent(next)) {
     jDirty = false;
     if (old) { deleteEntry(); return true; }
     setStatus('');
-    if (!auto) { toast('Write something or rate the day first'); $('jText').focus(); }
+    if (!auto) { toast('Write something, rate the day or pick a mood first'); $('jText').focus(); }
     return false;
   }
   // update in place: the entry object stays the same one other code may hold
   const e = old || (journal.entries[k] = {});
   Object.assign(e, next);
-  if (!('ratingHigh' in next)) delete e.ratingHigh;
+  ['ratingHigh', 'moods', 'important'].forEach(f => { if (!(f in next)) delete e[f]; });
   saveJournal();
   jDirty = false;
   if (k === jDate) {
@@ -275,13 +368,17 @@ function renderJournalLists() {
     const txt = ratingText(ratingLo(e), ratingHi(e));
     const clips = entryClips(e);
     const written = e && typeof e.text === 'string' && e.text.trim();
-    const what = !e ? 'no entry' : isRated(e) ? `rated ${txt} out of 10` : written ? 'written, not rated' : 'video only, not rated';
+    const what = !e ? 'no entry' : isRated(e) ? `rated ${txt} out of 10` : written ? 'written, not rated' : clips ? 'video only, not rated' : 'not rated';
     const vid = clips ? `, ${clips.n} video clip${clips.n === 1 ? '' : 's'} (${fmtClipLen(clips.dur)})` : '';
-    const face = el('b', null, !e ? '–' : isRated(e) ? txt : written ? '✎' : '🎥');
+    const firstMood = entryMoods(e)[0];
+    const face = el('b', null, !e ? '–' : isRated(e) ? txt : written ? '✎' : clips ? '🎥' : firstMood ? firstMood.icon : '★');
     if (clips && (isRated(e) || written)) face.append(el('i', 'j-day-cam', '🎥'));
+    if (isImportant(e)) { cell.classList.add('important'); face.append(el('i', 'j-day-star', '★')); }
     cell.append(face, el('span', null, k === today ? 'Today' : WD[d.getDay()].slice(0, 2) + ' ' + d.getDate()));
-    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${what}${vid}`);
-    cell.title = `${fmtDay(k, today)} · ${isRated(e) ? `${txt}/10` : what}${vid}`;
+    const mood = e && entryMoods(e).length ? `, feeling ${moodNames(e)}` : '';
+    const star = isImportant(e) ? ', important day' : '';
+    cell.setAttribute('aria-label', `${fmtDay(k, today)}: ${what}${vid}${mood}${star}`);
+    cell.title = `${fmtDay(k, today)}${isImportant(e) ? ' ★' : ''} · ${isRated(e) ? `${txt}/10` : what}${vid}${mood}`;
     cell.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     strip.append(cell);
     if (isRated(e)) vals.push(ratingMid(e));
@@ -298,7 +395,14 @@ function renderJournalLists() {
   // entries, newest first
   const list = $('jList');
   list.textContent = '';
-  const keys = Object.keys(journal.entries).sort().reverse();
+  const all = Object.keys(journal.entries).sort().reverse();
+  const nImp = all.filter(k => isImportant(journal.entries[k])).length;
+  if (!nImp) jOnlyImportant = false;
+  const fb = $('jOnlyImportant');
+  fb.hidden = !nImp;
+  fb.setAttribute('aria-pressed', String(jOnlyImportant));
+  fb.textContent = `★ Important only (${nImp})`;
+  const keys = jOnlyImportant ? all.filter(k => isImportant(journal.entries[k])) : all;
   if (!keys.length) {
     list.append(el('div', 'task-empty', 'No entries yet. Write a few lines or rate your day above.'));
     return;
@@ -306,20 +410,25 @@ function renderJournalLists() {
   const shown = jShowAll ? keys : keys.slice(0, 20);
   shown.forEach(k => {
     const e = journal.entries[k];
-    const item = paintMood(el('button', 'j-entry' + (k === jDate ? ' sel' : '')), ratingLo(e), ratingHi(e));
+    const item = paintMood(el('button', 'j-entry' + (k === jDate ? ' sel' : '') + (isImportant(e) ? ' important' : '')), ratingLo(e), ratingHi(e));
     item.type = 'button';
     const head = el('div', 'j-entry-head');
     const right = el('span', 'j-entry-badges');
     const cam = clipMarker(e);
     if (cam) right.append(cam);
     right.append(moodBadge(ratingLo(e), null, ratingHi(e)));
-    head.append(el('b', null, fmtDay(k, today)), right);
-    item.append(head, el('p', 'j-entry-text', e.text || (entryClips(e) ? 'Video only' : 'No notes')));
+    const title = el('b', null, fmtDay(k, today));
+    if (isImportant(e)) title.prepend(starMarker(), ' ');
+    head.append(title, right);
+    item.append(head);
+    const chips = moodChips(e);
+    if (chips) item.append(chips);
+    item.append(el('p', 'j-entry-text', e.text || (entryClips(e) ? 'Video only' : 'No notes')));
     item.addEventListener('click', () => { switchDate(k); renderJournalLists(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     list.append(item);
   });
   if (keys.length > shown.length) {
-    const more = el('button', 'small', `Show all ${keys.length} entries`);
+    const more = el('button', 'small', `Show all ${keys.length} ${jOnlyImportant ? 'important ' : ''}entries`);
     more.type = 'button';
     more.style.marginTop = '10px';
     more.addEventListener('click', () => { jShowAll = true; renderJournalLists(); });
@@ -338,6 +447,9 @@ function openJournal(k) {
 
 // ---------------------------------------------------------------- events
 buildRatingPicker();
+buildMoodPicker();
+$('jStar').addEventListener('click', () => { jImportant = !jImportant; markDirty(); paintStar(); });
+$('jOnlyImportant').addEventListener('click', () => { jOnlyImportant = !jOnlyImportant; renderJournalLists(); });
 $('jRangeBtn').addEventListener('click', () => setRangeMode(!jRange));
 $('jClearRating').addEventListener('click', clearRating);
 $('jText').addEventListener('input', markDirty);

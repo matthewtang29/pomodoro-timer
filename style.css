@@ -51,6 +51,8 @@
   --m-orange: #f4a582; --m-orange-ink: #2b2b2b;
   --m-yellow: #e6cf7e; --m-yellow-ink: #2b2b2b;
   --m-green: #8fb996;  --m-green-ink: #1e3a25;
+  /* important (starred) days */
+  --star: #c9922b; --star-tint: #fbf0d9;
   --shadow: 0 10px 30px rgba(40,38,30,.08);
 }
 
@@ -71,6 +73,7 @@
     --q1-ink: #cfccc6; --q2-ink: #e8e6e1; --q3-ink: #ffffff; --q4-ink: #ffffff; --q5-ink: #15261a;
     --p1: #f2aa8a; --p2: #f2aa8a; --p3: #9cc7a3; --p4: #9cc7a3;
     --m-red: #e0806f; --m-orange: #f2aa8a; --m-yellow: #e3cf86; --m-green: #9cc7a3; --m-green-ink: #15261a;
+    --star: #e8c063; --star-tint: #3a321f;
     --shadow: 0 12px 34px rgba(0,0,0,.45);
   }
 }
@@ -89,6 +92,7 @@
   --q1-ink: #cfccc6; --q2-ink: #e8e6e1; --q3-ink: #ffffff; --q4-ink: #ffffff; --q5-ink: #15261a;
   --p1: #f2aa8a; --p2: #f2aa8a; --p3: #9cc7a3; --p4: #9cc7a3;
   --m-red: #e0806f; --m-orange: #f2aa8a; --m-yellow: #e3cf86; --m-green: #9cc7a3; --m-green-ink: #15261a;
+    --star: #e8c063; --star-tint: #3a321f;
   --shadow: 0 12px 34px rgba(0,0,0,.45);
 }
 
@@ -619,6 +623,32 @@ pre#log {
 .day-journal-clips { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 .c-cam { font-size: 11px; line-height: 1; }
 
+/* important days (★) and moods */
+.j-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.j-star-btn { color: var(--muted); white-space: nowrap; }
+.j-star-btn[aria-pressed="true"] { color: var(--star); border-color: var(--star); background: var(--star-tint); }
+.j-star-btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--star-tint); }
+.j-moods-head { margin-top: 8px; }
+.j-mood-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.j-mood-btn { height: 32px; padding: 0 11px; border-radius: 999px; font-size: 13px; font-weight: 400; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; }
+.j-mood-btn[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--text); font-weight: 500; }
+.j-mood-icon { font-size: 14px; line-height: 1; }
+.j-moods { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.j-mood-chip { font-size: 11.5px; line-height: 1; padding: 4px 7px; border-radius: 999px; background: var(--line-2); color: var(--text-2); white-space: nowrap; }
+.j-star, .c-star, .legend-star { color: var(--star); }
+.j-entry.important { background: var(--star-tint); }
+.j-day-star { position: absolute; left: -3px; top: -7px; font-size: 11px; font-style: normal; line-height: 1; color: var(--star); text-shadow: 0 0 2px var(--bg); }
+.j-filter-btn { height: 28px; font-size: 12px; color: var(--muted); }
+.j-filter-btn[aria-pressed="true"] { color: var(--star); border-color: var(--star); background: var(--star-tint); }
+.day-journal-head .j-star-btn { margin-left: auto; }
+.day-journal-head .j-edit-btn { margin-left: 0; }
+/* calendar: starred days get a gold ring and a ★, on top of any rating color */
+.cal-cell.important { box-shadow: inset 0 0 0 2px var(--star); }
+.cal-cell.important:not(.mood) { background: var(--star-tint); }
+.cal-cell.important.sel { box-shadow: inset 0 0 0 2px var(--star), inset 0 0 0 3.5px var(--faint); }
+.c-star { font-size: 13px; line-height: 1; flex: none; }
+.c-moods { display: flex; flex-wrap: wrap; gap: 1px; font-size: 12px; line-height: 1.2; overflow: hidden; max-height: 1.3em; }
+
 /* video journal (journalvideo.js) */
 .j-video { display: flex; flex-direction: column; gap: 10px; }
 .jv-idle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -988,6 +1018,8 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
   .c-badges { flex-direction: column; align-items: flex-start; gap: 0; }
   .c-score { margin-left: 0; font-size: 11px; }
   .c-mood { font-size: 11px; }
+  .c-moods { display: none; }   /* too small here; the day panel lists them */
+  .c-star { font-size: 11px; }
   .cal-dow { padding: 6px 5px; }
   .page-head .seg.push { margin-left: 0; }
 }

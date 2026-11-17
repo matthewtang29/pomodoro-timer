@@ -58,9 +58,15 @@ function renderCalendar() {
     }
     if (sc) badges.append(scoreBadge(sc.score, 'c-score'));
     top.append(badges);
+    // important days: always marked, whatever the calendar is coloring by
+    const jx = typeof journalEntry === 'function' ? journalEntry(k) : null;
+    const imp = typeof isImportant === 'function' && isImportant(jx);
+    if (imp) { cell.classList.add('important'); top.append(starMarker('c-star')); }
     const cam = je ? clipMarker(je, 'c-cam') : null;
     if (cam) cam.textContent = '🎥';   // the length is in the day panel; cells are small
     cell.append(top);
+    const mchips = jx && typeof moodChips === 'function' ? moodChips(jx, true) : null;
+    if (mchips) { mchips.className = 'c-moods'; cell.append(mchips); }
 
     // hours slept the night before (filed under the morning you woke up)
     const se = typeof sleepEntry === 'function' ? sleepEntry(k) : null;
@@ -84,6 +90,8 @@ function renderCalendar() {
     }
 
     const label = [d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })];
+    if (imp) label.push('important day');
+    if (mchips) label.push(`feeling ${moodNames(jx)}`);
     if (je) label.push(isRated(je) ? `day rated ${ratingText(ratingLo(je), ratingHi(je))} out of 10` : 'journal written, not rated');
     const jc = je ? entryClips(je) : null;
     if (jc) label.push(`${jc.n} video clip${jc.n === 1 ? '' : 's'}, ${fmtClipLen(jc.dur)}`);
@@ -111,7 +119,10 @@ function renderCalDay() {
   const d = keyToDate(k);
 
   const head = el('div', 'day-head');
-  head.append(el('h3', null, d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })));
+  const je0 = typeof journalEntry === 'function' ? journalEntry(k) : null;
+  const h3 = el('h3', null, d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+  if (isImportant(je0)) h3.prepend(starMarker('c-star'), ' ');
+  head.append(h3);
   const sc = dayScore(k);
   if (sc) {
     const s = el('span', 'score-label');
@@ -131,11 +142,25 @@ function renderCalDay() {
     const jt = el('b', null, 'Journal');
     jh.append(jt);
     if (je) jh.append(moodBadge(ratingLo(je), null, ratingHi(je)));
+    const imp = isImportant(je);
+    const star = el('button', 'small j-star-btn', imp ? '★ Important' : '☆ Mark important');
+    star.type = 'button';
+    star.setAttribute('aria-pressed', String(imp));
+    star.title = imp ? 'Unstar this day' : 'Star this day so it stands out on the calendar';
+    star.addEventListener('click', () => {
+      setImportant(k, !imp);
+      renderCalendar();
+      toast(imp ? 'Unstarred' : 'Marked as an important day');
+    });
+    jh.append(star);
     const jbtn = el('button', 'small', je ? 'Edit' : 'Write about this day');
     jbtn.type = 'button';
+    jbtn.classList.add('j-edit-btn');
     jbtn.addEventListener('click', () => openJournal(k));
     jh.append(jbtn);
     jbox.append(jh);
+    const chips = je ? moodChips(je) : null;
+    if (chips) jbox.append(chips);
     if (je && je.text) jbox.append(el('p', 'day-journal-text', je.text));
     const jc = je ? entryClips(je) : null;
     if (jc) jbox.append(el('p', 'day-journal-clips', `🎥 ${jc.n} video clip${jc.n === 1 ? '' : 's'} · ${fmtClipLen(jc.dur)}`));

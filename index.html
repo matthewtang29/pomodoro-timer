@@ -22,7 +22,7 @@
 <link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.16e">
+<link rel="stylesheet" href="style.css?v=2026.11.16f">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -394,6 +394,7 @@
         <span class="q"><i style="background:var(--m-yellow)"></i>6–8</span>
         <span class="q"><i style="background:var(--m-green)"></i>9–10</span>
       </div>
+      <div class="cal-legend"><span><span class="legend-star">★</span> = important day</span></div>
       <div class="cal-legend" id="legendScore">
         <span>Number on the right = productivity score · 😴 = hours slept</span>
       </div>
@@ -409,7 +410,10 @@
           <h2 id="jHeading"></h2>
           <p id="jTitle">How was today?</p>
         </div>
-        <label class="inline-field">Date <input type="date" id="jDate"></label>
+        <div class="j-head-actions">
+          <button type="button" class="small j-star-btn" id="jStar" aria-pressed="false">☆ Mark as important</button>
+          <label class="inline-field">Date <input type="date" id="jDate"></label>
+        </div>
       </header>
       <div class="j-rating-head">
         <span>Rate your day</span>
@@ -418,6 +422,11 @@
         <button type="button" class="small j-clear-btn" id="jClearRating" hidden>Clear</button>
       </div>
       <div class="j-rating" id="jRating" role="radiogroup" aria-label="Day rating out of 10"></div>
+      <div class="j-rating-head j-moods-head">
+        <span>Moods</span>
+        <span class="j-rating-label" id="jMoodsLabel">Optional: pick any that fit</span>
+      </div>
+      <div class="j-mood-picker" id="jMoods" role="group" aria-label="Moods for the day"></div>
       <label class="j-notes">
         <span>Notes</span>
         <textarea id="jText" rows="9" placeholder="What happened today? What went well, what didn't?"></textarea>
@@ -455,7 +464,10 @@
     </section>
 
     <section class="section">
-      <h3>Entries</h3>
+      <div class="section-head">
+        <h3>Entries</h3>
+        <button type="button" class="small j-filter-btn" id="jOnlyImportant" aria-pressed="false" hidden>★ Important only</button>
+      </div>
       <div id="jList"></div>
     </section>
   </div>
@@ -546,25 +558,25 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="boardsync.js?v=2026.11.16e"></script>
-<script src="claudestatus.js?v=2026.11.16e"></script>
-<script src="app.js?v=2026.11.16e"></script>
-<script src="localtimer.js?v=2026.11.16e"></script>
-<script src="notify.js?v=2026.11.16e"></script>
-<script src="score.js?v=2026.11.16e"></script>
-<script src="analytics.js?v=2026.11.16e"></script>
-<script src="tasks.js?v=2026.11.16e"></script>
-<script src="calendar.js?v=2026.11.16e"></script>
-<script src="journal.js?v=2026.11.16e"></script>
-<script src="journalvideo.js?v=2026.11.16e"></script>
-<script src="habits.js?v=2026.11.16e"></script>
-<script src="sleep.js?v=2026.11.16e"></script>
-<script src="dashboard.js?v=2026.11.16e"></script>
-<script src="sync.js?v=2026.11.16e"></script>
-<script src="livesync.js?v=2026.11.16e"></script>
-<script src="push.js?v=2026.11.16e"></script>
-<script src="theme.js?v=2026.11.16e"></script>
-<script src="shortcuts.js?v=2026.11.16e"></script>
-<script src="main.js?v=2026.11.16e"></script>
+<script src="boardsync.js?v=2026.11.16f"></script>
+<script src="claudestatus.js?v=2026.11.16f"></script>
+<script src="app.js?v=2026.11.16f"></script>
+<script src="localtimer.js?v=2026.11.16f"></script>
+<script src="notify.js?v=2026.11.16f"></script>
+<script src="score.js?v=2026.11.16f"></script>
+<script src="analytics.js?v=2026.11.16f"></script>
+<script src="tasks.js?v=2026.11.16f"></script>
+<script src="calendar.js?v=2026.11.16f"></script>
+<script src="journal.js?v=2026.11.16f"></script>
+<script src="journalvideo.js?v=2026.11.16f"></script>
+<script src="habits.js?v=2026.11.16f"></script>
+<script src="sleep.js?v=2026.11.16f"></script>
+<script src="dashboard.js?v=2026.11.16f"></script>
+<script src="sync.js?v=2026.11.16f"></script>
+<script src="livesync.js?v=2026.11.16f"></script>
+<script src="push.js?v=2026.11.16f"></script>
+<script src="theme.js?v=2026.11.16f"></script>
+<script src="shortcuts.js?v=2026.11.16f"></script>
+<script src="main.js?v=2026.11.16f"></script>
 </body>
 </html>

@@ -69,6 +69,8 @@ service cloud.firestore {
       // text: string <= 200000 (or missing/null)     | journal.js saveEntry(): $('jText').value.trim()
       // updated, u: number (or missing)              | journal.js saveEntry() / sync.js stamp()
       // videos: list <= 50 (or missing/null)         | video journal (coming): [{ id, at, dur, size, mime, device, uploaded }]
+      // moods: list of mood ids (not checked)       | journal.js saveEntry(): only when some are picked
+      // important: true (not checked)                | journal.js saveEntry() / setImportant(): only when starred
       // <= 100 keys, any other keys allowed          | legacy fields (sync.js flush(): clean(e))
       match /journal/{day} {
         allow read, delete: if owner(uid);

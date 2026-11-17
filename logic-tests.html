@@ -365,6 +365,27 @@
     eq('entries older than 30 days are in neither', avgFor({ [dayAgo(31)]: { rating: 10, updated: 1 } }), 'No ratings yet');
     g('journal.entries = {}');
 
+    // ------------------------------------------------------------ journal.js: important days and moods
+    group('Journal important days and moods');
+    eq('isImportant: only important === true counts', g('[isImportant({ important: true }), isImportant({ important: "yes" }), isImportant({}), isImportant(null)]'), [true, false, false, false]);
+    eq('entryMoods: known ids in list order, unknown and junk skipped',
+      g('entryMoods({ moods: ["tired", "nope", 5, "studious"] }).map(m => m.id)'), ['studious', 'tired']);
+    eq('entryMoods: missing or bad moods -> []', g('[entryMoods({}).length, entryMoods({ moods: "happy" }).length, entryMoods(null).length]'), [0, 0, 0]);
+    eq('a star alone is worth keeping', g('entryHasContent({ rating: null, text: "", important: true })'), true);
+    eq('moods alone are worth keeping', g('entryHasContent({ rating: null, text: "", moods: ["happy"] })'), true);
+    eq('only unknown moods is not', g('entryHasContent({ rating: null, text: "", moods: ["nope"] })'), false);
+    g(`journal.entries = {}; setImportant('2026-06-10', true)`);
+    eq('setImportant on an empty day creates a starred entry', g(`[isImportant(journalEntry('2026-06-10')), journalEntry('2026-06-10').rating]`), [true, null]);
+    g(`setImportant('2026-06-10', false)`);
+    eq('unstarring an otherwise empty entry deletes it', g(`journalEntry('2026-06-10')`), null);
+    g(`journal.entries = { '2026-06-11': { rating: 7, text: 'kept', moods: ['fun'], updated: 1 } }; setImportant('2026-06-11', true); setImportant('2026-06-11', false)`);
+    eq('unstarring keeps the rest of the entry', g(`(e => [e.rating, e.text, e.moods, 'important' in e])(journalEntry('2026-06-11'))`), [7, 'kept', ['fun'], false]);
+    g(`journal.entries = { '2026-06-12': { rating: 5, text: 'a', updated: 1, important: true }, '2026-06-11': { rating: 6, text: 'b', updated: 1 } }; jOnlyImportant = true; renderJournalLists()`);
+    eq('"Important only" lists starred days only', g(`$('jList').querySelectorAll('.j-entry').length`), 1);
+    eq('the filter button shows the count', g(`$('jOnlyImportant').textContent`), '★ Important only (1)');
+    g(`jOnlyImportant = false; journal.entries = {}; renderJournalLists()`);
+    eq('the filter hides when nothing is starred', g(`$('jOnlyImportant').hidden`), true);
+
     // ------------------------------------------------------------ timer parity
     // localtimer.js advance() and cloud upcomingAlerts() keep the phase rules separately. Start both
     // from the same state and compare when each says a "focus done" / "break over" / "session
