@@ -4,7 +4,8 @@
 // A script on the laptop (Claude Code hooks + status line, Admin SDK) writes ONE doc:
 //   users/{uid}/robot/claude = { jobs: { <key>: { sid, name, project, state, startedAt,
 //                                                 finishedAt, updatedAt } },
-//                                usage: { fiveHour, fiveHourResetsAt, sevenDay, sevenDayResetsAt, updatedAt } }
+//                                usage: { fiveHour, fiveHourResetsAt, sevenDay, sevenDayResetsAt, updatedAt },
+//                                voice: { state: "listening"|"idle", updatedAt } }   (voice_claude.py on the laptop)
 // The app only READS it. (The rules let the owner delete it too, for account cleanup in
 // sync.js; nothing in this file ever writes or deletes it.)
 //
@@ -13,6 +14,7 @@
 //   CLAUDE JOB <0|1> DONE [name]    job finished: DONE! + chime, once per job
 //   CLAUDE JOB <0|1> END            slot empty again (no alert)
 //   USAGE <week%> <5h%> <weekReset> <5hReset>
+//   VOICE ON | VOICE OFF            you're talking to Claude: wake chirp + listening face / normal face
 //
 // Listens only while the desk robot is linked (it has sent EVENT SYNC on this
 // connection) AND you're signed in. Lines go through the same 50 ms write queue as the
@@ -25,6 +27,7 @@ const ClaudeStatus = (() => {
   const MIN_DONE_MS = 20e3;         // ...and took at least 20 s (quick Q&A replies don't chime)
   const TICK_MS = 60e3;             // re-check stale jobs and reset labels once a minute
   const NAME_MAX = 20;
+  const VOICE_FRESH_MS = 15e3;      // a "listening" older than this is history: never chirp for it
 
   // ---------------------------------------------------------------- pure helpers (tested in tests.html)
   const pad2 = n => String(n).padStart(2, '0');
@@ -61,6 +64,17 @@ const ClaudeStatus = (() => {
     if (!fin || now - fin >= LIVE_MS) return 'END';       // history, not a live event
     if (!start || fin - start < MIN_DONE_MS) return 'END'; // short reply (or length unknown)
     return 'DONE';
+  }
+
+  // Listening state -> board line. Like DONE, only a live change seen by this listener turns the
+  // face on (no chirp from a load or a stale doc). OFF in any mode, so the face never sticks.
+  // prev/cur: doc.voice before/after this snapshot (null/undefined if missing).
+  function voiceLine(prev, cur, now, mode) {
+    const on = v => !!v && v.state === 'listening';
+    if (mode === 'live' && on(cur) && now - num(cur.updatedAt) < VOICE_FRESH_MS &&
+        !(on(prev) && num(prev.updatedAt) === num(cur.updatedAt))) return 'VOICE ON';
+    if (on(prev) && !on(cur)) return 'VOICE OFF';
+    return null;
   }
 
   // Slot state, kept across snapshots: which job key holds each slot (sticky), the name
@@ -138,7 +152,10 @@ const ClaudeStatus = (() => {
     // a job that finished while nothing was listening must not chime.
     const mode = loaded ? 'live' : doc ? 'loading' : 'initial';
     if (!snap.metadata || !snap.metadata.fromCache) loaded = true;
+    const prevVoice = doc ? doc.voice : null;
     doc = snap.exists ? (snap.data() || {}) : {};
+    const v = voiceLine(prevVoice, doc.voice, Date.now(), mode);
+    if (v) out([v]);                                  // first: it's the time-critical one
     out(step(st, doc.jobs, Date.now(), mode));
     sendUsage(mode === 'initial');
   }
@@ -196,7 +213,7 @@ const ClaudeStatus = (() => {
   return {
     attach, detach, onBoardSync, onAuth,
     // pure helpers (tests.html)
-    resetLabel, usageLine, doneDecision, step, newState, cleanName,
-    STALE_MS, LIVE_MS, MIN_DONE_MS,
+    resetLabel, usageLine, doneDecision, step, newState, cleanName, voiceLine,
+    STALE_MS, LIVE_MS, MIN_DONE_MS, VOICE_FRESH_MS,
   };
 })();

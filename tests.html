@@ -198,6 +198,21 @@
   eq('DONE frees the slot; the other job stays put', [C.step(st, { j: done(longJob, 0), k: b }, T0, 'live'), st.slots],
     [['CLAUDE JOB 1 DONE Long job'], ['k', null]]);
 
+  group('claudestatus: VOICE (listening face)');
+  const lis = (ago) => ({ state: 'listening', updatedAt: T0 - ago }), idle = (ago) => ({ state: 'idle', updatedAt: T0 - ago });
+  eq('live idle -> listening (fresh) -> VOICE ON', C.voiceLine(idle(5e3), lis(0), T0, 'live'), 'VOICE ON');
+  eq('live missing -> listening (fresh) -> VOICE ON', C.voiceLine(undefined, lis(0), T0, 'live'), 'VOICE ON');
+  eq('live listening -> idle -> VOICE OFF', C.voiceLine(lis(2e3), idle(0), T0, 'live'), 'VOICE OFF');
+  eq('live, same listening entry again (other field changed) -> nothing', C.voiceLine(lis(1e3), lis(1e3), T0, 'live'), null);
+  eq('live, listening rewritten (new updatedAt) -> VOICE ON (board: no second chirp)', C.voiceLine(lis(3e3), lis(0), T0, 'live'), 'VOICE ON');
+  eq('live but listening is stale (20 s) -> nothing', C.voiceLine(idle(30e3), lis(20e3), T0, 'live'), null);
+  eq('exactly at the freshness limit -> nothing', C.voiceLine(idle(30e3), lis(C.VOICE_FRESH_MS), T0, 'live'), null);
+  eq('initial load while listening -> never ON', C.voiceLine(null, lis(0), T0, 'initial'), null);
+  eq('loading (cache -> server) while listening -> never ON', C.voiceLine(lis(0), lis(0), T0, 'loading'), null);
+  eq('loading: listening -> idle -> VOICE OFF (never stuck)', C.voiceLine(lis(1e3), idle(0), T0, 'loading'), 'VOICE OFF');
+  eq('no voice field at all -> nothing', C.voiceLine(undefined, undefined, T0, 'live'), null);
+  eq('idle -> idle -> nothing', C.voiceLine(idle(5e3), idle(0), T0, 'live'), null);
+
   document.getElementById('summary').textContent = fail ? `${fail} failed, ${pass} passed` : `All ${pass} passed`;
   document.getElementById('summary').className = fail ? 'bad' : 'ok';
 })();
