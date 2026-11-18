@@ -182,3 +182,8 @@ if (isInstalledApp && 'serial' in navigator) {
     if (ports.length === 1 && !port) connect(ports[0]);
   }).catch(() => {});
 }
+
+// No pinch zoom on iPhone: Safari ignores user-scalable=no in the viewport tag, so stop its
+// pinch gesture here (double-tap zoom is already off via touch-action in style.css).
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });

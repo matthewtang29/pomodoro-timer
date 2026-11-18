@@ -2,7 +2,7 @@
 // One page that sums up the day and the week before it: focus, score, tasks due,
 // last night's sleep, and the past 7 days of focus, sleep, habits and day ratings.
 // Everything here is read from the other pages' data; habits can be ticked off
-// right here, and tasks due today can be checked.
+// right here, and today can be planned out as time blocks on a day calendar.
 
 function dashDays(n) {   // the last n day keys, oldest first, ending today
   const today = todayKey();
@@ -122,24 +122,8 @@ function renderDashboard() {
     $('dbHabitsPct').textContent = `${Math.round(yes / (list.length * 7) * 100)}% this week`;
   } else $('dbHabitsPct').textContent = '';
 
-  // ---------------- tasks due today (and overdue)
-  const tl = $('dbTaskList');
-  tl.textContent = '';
-  const due = sortTasks(open).slice(0, 6);
-  $('dbTasksEmpty').hidden = due.length > 0;
-  $('dbTasksEmpty').textContent = doneToday.length ? 'Everything due today is done.' : 'Nothing due today.';
-  due.forEach(t => {
-    const row = el('div', 'db-task');
-    const chk = el('button', 'db-check');
-    chk.type = 'button';
-    chk.setAttribute('aria-label', `Mark “${t.title}” done`);
-    chk.addEventListener('click', () => { setTaskDone(t.id, true); renderDashboard(); });
-    const meta = t.due < today ? 'overdue' : DIFF_LABEL[t.difficulty] || '';
-    row.append(chk, el('span', 'db-ttitle', t.title), el('span', 'db-tmeta' + (t.due < today ? ' overdue' : ''), meta));
-    tl.append(row);
-  });
-  $('dbTasksMore').hidden = open.length <= due.length;
-  $('dbTasksMore').textContent = `+${open.length - due.length} more`;
+  // ---------------- plan your day
+  renderPlan(open);
 
   // ---------------- day ratings, past 7 days
   const mood = $('dbMood');
@@ -166,5 +150,211 @@ function renderDashboard() {
   });
   $('dbMoodAvg').textContent = rated ? `avg ${(sum / rated).toFixed(1)}` : '';
 }
+
+// ================================================================= PLAN YOUR DAY
+// Time blocks for today, drawn as a one-day calendar where each block's height is its length:
+//   dayPlan.days['YYYY-MM-DD'] = [{ id, title, start: 'HH:MM', end: 'HH:MM', done: bool, color }]
+// Kept on this device only (not synced); days older than two weeks are dropped on save.
+// An end of 00:00 means midnight at the end of the day.
+const PLAN_KEY = 'pomodoro-plan-v1';
+const PLAN_HOUR_PX = 48;                   // height of one hour on the calendar
+const PLAN_COLORS = ['sage', 'peach', 'butter'];
+let dayPlan = loadPlan();
+let planScrolledAt = 0;
+
+function loadPlan() {
+  try {
+    const d = JSON.parse(localStorage.getItem(PLAN_KEY));
+    if (isPlainObj(d) && isPlainObj(d.days)) {
+      for (const k of Object.keys(d.days)) {
+        if (!Array.isArray(d.days[k])) delete d.days[k];
+        else d.days[k] = d.days[k].filter(b => isPlainObj(b) && b.start && b.end);
+      }
+      return d;
+    }
+  } catch (e) {}
+  return { days: {} };
+}
+function savePlan() {
+  const cut = shiftKey(todayKey(), -14);
+  for (const k of Object.keys(dayPlan.days)) if (k < cut || !dayPlan.days[k].length) delete dayPlan.days[k];
+  safeSetItem(PLAN_KEY, JSON.stringify(dayPlan));
+}
+function planBlocks(k) { return dayPlan.days[k] || []; }
+const planStart = b => toMin(b.start);
+const planEnd = b => toMin(b.end) || 1440;
+function minToHHMM(m) { m = Math.max(0, Math.min(1439, m)); return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; }
+function planEndValue(m) { return m >= 1440 ? '00:00' : minToHHMM(m); }
+function nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+function fmtHour(h) { return new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' }); }
+// "2:00 – 4:00 PM" (AM/PM shown once when both times share it)
+function fmtSpan(a, b) {
+  const s = fmtTimeOfDay(a), e = fmtTimeOfDay(b);
+  const tail = x => (x.match(/[^\d:]+$/) || [''])[0];
+  const t = tail(s);
+  return t.trim() && t === tail(e) ? `${s.slice(0, -t.length)} – ${e}` : `${s} – ${e}`;
+}
+
+// Default times: right after the last block that is still running or ahead, else the next half hour.
+function planDefaultTimes() {
+  const n = nowMin();
+  let s = Math.ceil(n / 30) * 30;
+  const ends = planBlocks(todayKey()).map(planEnd).filter(e => e > n);
+  if (ends.length) s = Math.max(s, Math.max(...ends));
+  planSetTimes(Math.min(s, 1380));
+}
+// Fills in start and an end an hour later. The end then follows the start (an hour after it)
+// until the person picks an end themselves; after that it is left alone.
+let planEndTouched = false;
+function planSetTimes(startMin) {
+  $('plStart').value = minToHHMM(startMin);
+  $('plEnd').value = planEndValue(startMin + 60);
+  planEndTouched = false;
+}
+
+// Blocks that overlap sit side by side: each cluster of overlapping blocks is
+// split into as many columns as it needs.
+function planLayout(list) {
+  const sorted = list.slice().sort((a, b) => planStart(a) - planStart(b) || planEnd(b) - planEnd(a));
+  const out = new Map();
+  let cluster = [], cols = [], clusterEnd = -1;
+  const close = () => { cluster.forEach(b => { out.get(b).n = cols.length; }); cluster = []; cols = []; };
+  sorted.forEach(b => {
+    if (planStart(b) >= clusterEnd) close();
+    let c = cols.findIndex(end => end <= planStart(b));
+    if (c < 0) { c = cols.length; cols.push(0); }
+    cols[c] = planEnd(b);
+    out.set(b, { col: c, n: 1 });
+    cluster.push(b);
+    clusterEnd = Math.max(clusterEnd, planEnd(b));
+  });
+  close();
+  return out;
+}
+
+function renderPlan(openTasks) {
+  const today = todayKey();
+  const list = planBlocks(today);
+  const cal = $('plCal');
+
+  const total = list.reduce((a, b) => a + planEnd(b) - planStart(b), 0);
+  $('dbPlanSum').textContent = total ? `${fmtDuration(total)} planned` : '';
+
+  // open task titles to pick from while typing
+  const dl = $('plTaskList');
+  dl.textContent = '';
+  sortTasks(openTasks || []).slice(0, 30).forEach(t => { const o = document.createElement('option'); o.value = t.title; dl.append(o); });
+  const editing = $('plForm').contains(document.activeElement) || $('plTitle').value;
+  if (!$('plStart').value || (!editing && !planEndTouched)) planDefaultTimes();
+
+  // the hour grid is built once; blocks and the now line are redrawn
+  let grid = cal.querySelector('.pl-grid');
+  if (!grid) {
+    grid = el('div', 'pl-grid');
+    grid.style.height = 24 * PLAN_HOUR_PX + 'px';
+    for (let h = 0; h < 24; h++) {
+      const row = el('div', 'pl-hour');
+      row.style.top = h * PLAN_HOUR_PX + 'px';
+      row.append(el('span', 'pl-hlabel', h ? fmtHour(h) : ''));
+      grid.append(row);
+    }
+    grid.append(el('div', 'pl-blocks'));
+    const now = el('div', 'pl-now');
+    now.append(el('span'));
+    grid.append(now);
+    // clicking an empty spot starts a block at that half hour
+    grid.addEventListener('click', e => {
+      if (e.target.closest('.pl-block')) return;
+      const m = Math.min(1410, Math.floor((e.clientY - grid.getBoundingClientRect().top) / PLAN_HOUR_PX * 2) * 30);
+      planSetTimes(m);
+      $('plErr').hidden = true;
+      $('plTitle').focus();
+    });
+    cal.append(grid);
+  }
+
+  const layer = grid.querySelector('.pl-blocks');
+  layer.textContent = '';
+  const n = nowMin();
+  const lay = planLayout(list);
+  list.forEach(b => {
+    const s = planStart(b), e = planEnd(b), { col, n: cols } = lay.get(b);
+    const h = (e - s) / 60 * PLAN_HOUR_PX;
+    const blk = el('div', `pl-block c-${PLAN_COLORS.includes(b.color) ? b.color : 'sage'}` +
+      (b.done ? ' done' : '') + (e <= n ? ' past' : '') + (s <= n && n < e ? ' current' : '') + (h < 44 ? ' short' : ''));
+    blk.style.top = s / 60 * PLAN_HOUR_PX + 1 + 'px';
+    blk.style.height = Math.max(h, 20) - 2 + 'px';
+    blk.style.left = `calc(${col} * 100% / ${cols})`;
+    blk.style.width = `calc(100% / ${cols} - 4px)`;
+    blk.title = `${b.title}\n${fmtSpan(b.start, b.end)}`;
+
+    const chk = el('button', 'pl-check');
+    chk.type = 'button';
+    chk.setAttribute('aria-pressed', b.done ? 'true' : 'false');
+    chk.setAttribute('aria-label', `${b.done ? 'Not done' : 'Done'}: ${b.title}`);
+    chk.addEventListener('click', () => { b.done = !b.done; savePlan(); renderPlan(openTasks); });
+    const del = el('button', 'pl-del', '×');
+    del.type = 'button';
+    del.setAttribute('aria-label', `Remove ${b.title}`);
+    del.addEventListener('click', () => {
+      dayPlan.days[today] = planBlocks(today).filter(x => x !== b);
+      savePlan();
+      renderDashboard();
+    });
+    const txt = el('div', 'pl-txt');
+    txt.append(el('b', null, b.title), el('span', null, fmtSpan(b.start, b.end)));
+    blk.append(chk, txt, del);
+    layer.append(blk);
+  });
+  planNowLine();
+
+  // bring the current hour into view when the page is opened (not on every redraw)
+  if (Date.now() - planScrolledAt > 5 * 60e3 && cal.offsetParent) {
+    planScrolledAt = Date.now();
+    cal.scrollTop = Math.max(0, (n / 60 - 1.5) * PLAN_HOUR_PX);
+  }
+}
+function planNowLine() {
+  const line = document.querySelector('#plCal .pl-now');
+  if (!line) return;
+  const n = nowMin();
+  line.style.top = n / 60 * PLAN_HOUR_PX + 'px';
+  line.firstChild.textContent = fmtTimeOfDay(minToHHMM(n));
+  // the hour label right under the now label would peek out behind it
+  document.querySelectorAll('#plCal .pl-hlabel').forEach((l, h) => { l.style.visibility = Math.abs(h * 60 - n) < 16 ? 'hidden' : ''; });
+}
+setInterval(() => { if (!$('todayView').hidden) planNowLine(); }, 30e3);
+
+$('plForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const err = msg => { $('plErr').textContent = msg; $('plErr').hidden = false; };
+  const title = $('plTitle').value.trim();
+  const start = $('plStart').value, end = $('plEnd').value;
+  if (!title) return err('Give the block a name.');
+  if (!start || !end) return err('Pick a start and an end time.');
+  const b = { id: Math.random().toString(36).slice(2, 10), title, start, end, done: false };
+  if (planEnd(b) <= planStart(b)) return err('The end time has to be after the start.');
+  const today = todayKey();
+  const list = planBlocks(today);
+  b.color = PLAN_COLORS[list.length % PLAN_COLORS.length];
+  dayPlan.days[today] = list.concat(b);
+  savePlan();
+  $('plErr').hidden = true;
+  $('plTitle').value = '';
+  // the next block starts where this one ended
+  const next = planEnd(b);
+  if (next < 1440) planSetTimes(next);
+  renderDashboard();
+  const cal = $('plCal');
+  const top = planStart(b) / 60 * PLAN_HOUR_PX;
+  if (top < cal.scrollTop || top > cal.scrollTop + cal.clientHeight - 40) cal.scrollTop = Math.max(0, top - PLAN_HOUR_PX);
+  $('plTitle').focus();
+});
+['plStart', 'plEnd', 'plTitle'].forEach(id => $(id).addEventListener('input', () => { $('plErr').hidden = true; }));
+$('plEnd').addEventListener('input', () => { planEndTouched = !!$('plEnd').value; });
+$('plStart').addEventListener('input', () => {
+  if (planEndTouched || !$('plStart').value) return;
+  $('plEnd').value = planEndValue(toMin($('plStart').value) + 60);
+});
 
 document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.goto)));
