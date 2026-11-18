@@ -864,6 +864,15 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 .db-hcell.no, .db-hcell.no:hover:not(:disabled) { background: var(--peach-tint); border-color: var(--peach); }
 .db-hcount { font-size: 11px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 
+/* tasks due */
+.db-task { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-2); min-width: 0; }
+.db-task:last-child { border-bottom: 0; }
+.db-check { flex: none; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1.5px solid var(--idle); background: none; }
+.db-check:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-tint); }
+.db-ttitle { flex: 1; min-width: 0; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-tmeta { font-size: 12px; color: var(--faint); white-space: nowrap; }
+.db-tmeta.overdue { color: var(--peach-ink); }
+
 /* plan your day: add form + a one-day calendar (block height = its length; PLAN_HOUR_PX in dashboard.js) */
 .pl-add { display: flex; flex-wrap: wrap; gap: 8px; }
 .pl-add input[type="text"] { flex: 1 1 100%; min-width: 0; }
@@ -876,7 +885,10 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pl-times button { flex: none; height: 32px; }
 .pl-err { flex: 1 1 100%; margin: 0; font-size: 12px; color: var(--down); }
 
-.pl-cal { position: relative; height: 340px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px 0 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/* left column: Habits over Due today (which takes any spare height); the plan's calendar fills the right */
+.db-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.db-due { flex: 1; }
+.pl-cal { position: relative; flex: 1 1 0; min-height: 340px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px 0 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .pl-cal:focus-visible { outline-offset: -2px; }
 .pl-grid { position: relative; margin: 10px 0; cursor: copy; }
 .pl-hour { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--grid); }

@@ -22,7 +22,7 @@
 <link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.18b">
+<link rel="stylesheet" href="style.css?v=2026.11.18d">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -172,13 +172,21 @@
         <div id="dbSleepChart"></div>
       </section>
 
-      <section class="db-card">
-        <div class="db-head"><h3>Habits</h3><span id="dbHabitsPct"></span><button type="button" class="db-link" data-goto="habits">Habits →</button></div>
-        <p class="empty-msg" id="dbHabitsEmpty">No habits yet.</p>
-        <div id="dbHabits"></div>
-      </section>
+      <div class="db-stack">
+        <section class="db-card">
+          <div class="db-head"><h3>Habits</h3><span id="dbHabitsPct"></span><button type="button" class="db-link" data-goto="habits">Habits →</button></div>
+          <p class="empty-msg" id="dbHabitsEmpty">No habits yet.</p>
+          <div id="dbHabits"></div>
+        </section>
 
-      <section class="db-card">
+        <section class="db-card db-due">
+          <div class="db-head"><h3>Due today</h3><span id="dbTasksMore" hidden></span><button type="button" class="db-link" data-goto="tasks">Tasks →</button></div>
+          <p class="empty-msg" id="dbTasksEmpty"></p>
+          <div id="dbTaskList"></div>
+        </section>
+      </div>
+
+      <section class="db-card db-plan">
         <div class="db-head"><h3>Plan your day</h3><span id="dbPlanSum"></span><button type="button" class="db-link" data-goto="tasks">Tasks →</button></div>
         <form class="pl-add" id="plForm" autocomplete="off">
           <input type="text" id="plTitle" list="plTaskList" placeholder="What are you doing?" maxlength="80" aria-label="Task" required>
@@ -568,25 +576,25 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="boardsync.js?v=2026.11.18b"></script>
-<script src="claudestatus.js?v=2026.11.18b"></script>
-<script src="app.js?v=2026.11.18b"></script>
-<script src="localtimer.js?v=2026.11.18b"></script>
-<script src="notify.js?v=2026.11.18b"></script>
-<script src="score.js?v=2026.11.18b"></script>
-<script src="analytics.js?v=2026.11.18b"></script>
-<script src="tasks.js?v=2026.11.18b"></script>
-<script src="calendar.js?v=2026.11.18b"></script>
-<script src="journal.js?v=2026.11.18b"></script>
-<script src="journalvideo.js?v=2026.11.18b"></script>
-<script src="habits.js?v=2026.11.18b"></script>
-<script src="sleep.js?v=2026.11.18b"></script>
-<script src="dashboard.js?v=2026.11.18b"></script>
-<script src="sync.js?v=2026.11.18b"></script>
-<script src="livesync.js?v=2026.11.18b"></script>
-<script src="push.js?v=2026.11.18b"></script>
-<script src="theme.js?v=2026.11.18b"></script>
-<script src="shortcuts.js?v=2026.11.18b"></script>
-<script src="main.js?v=2026.11.18b"></script>
+<script src="boardsync.js?v=2026.11.18d"></script>
+<script src="claudestatus.js?v=2026.11.18d"></script>
+<script src="app.js?v=2026.11.18d"></script>
+<script src="localtimer.js?v=2026.11.18d"></script>
+<script src="notify.js?v=2026.11.18d"></script>
+<script src="score.js?v=2026.11.18d"></script>
+<script src="analytics.js?v=2026.11.18d"></script>
+<script src="tasks.js?v=2026.11.18d"></script>
+<script src="calendar.js?v=2026.11.18d"></script>
+<script src="journal.js?v=2026.11.18d"></script>
+<script src="journalvideo.js?v=2026.11.18d"></script>
+<script src="habits.js?v=2026.11.18d"></script>
+<script src="sleep.js?v=2026.11.18d"></script>
+<script src="dashboard.js?v=2026.11.18d"></script>
+<script src="sync.js?v=2026.11.18d"></script>
+<script src="livesync.js?v=2026.11.18d"></script>
+<script src="push.js?v=2026.11.18d"></script>
+<script src="theme.js?v=2026.11.18d"></script>
+<script src="shortcuts.js?v=2026.11.18d"></script>
+<script src="main.js?v=2026.11.18d"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 // One page that sums up the day and the week before it: focus, score, tasks due,
 // last night's sleep, and the past 7 days of focus, sleep, habits and day ratings.
 // Everything here is read from the other pages' data; habits can be ticked off
-// right here, and today can be planned out as time blocks on a day calendar.
+// right here, tasks due today can be checked, and today can be planned out as time blocks.
 
 function dashDays(n) {   // the last n day keys, oldest first, ending today
   const today = todayKey();
@@ -121,6 +121,25 @@ function renderDashboard() {
     hb.append(grid);
     $('dbHabitsPct').textContent = `${Math.round(yes / (list.length * 7) * 100)}% this week`;
   } else $('dbHabitsPct').textContent = '';
+
+  // ---------------- tasks due today (and overdue)
+  const tl = $('dbTaskList');
+  tl.textContent = '';
+  const due = sortTasks(open).slice(0, 6);
+  $('dbTasksEmpty').hidden = due.length > 0;
+  $('dbTasksEmpty').textContent = doneToday.length ? 'Everything due today is done.' : 'Nothing due today.';
+  due.forEach(t => {
+    const row = el('div', 'db-task');
+    const chk = el('button', 'db-check');
+    chk.type = 'button';
+    chk.setAttribute('aria-label', `Mark “${t.title}” done`);
+    chk.addEventListener('click', () => { setTaskDone(t.id, true); renderDashboard(); });
+    const meta = t.due < today ? 'overdue' : DIFF_LABEL[t.difficulty] || '';
+    row.append(chk, el('span', 'db-ttitle', t.title), el('span', 'db-tmeta' + (t.due < today ? ' overdue' : ''), meta));
+    tl.append(row);
+  });
+  $('dbTasksMore').hidden = open.length <= due.length;
+  $('dbTasksMore').textContent = `+${open.length - due.length} more`;
 
   // ---------------- plan your day
   renderPlan(open);
