@@ -2,7 +2,7 @@
 // Files come from the saved copy right away; each one is re-checked with GitHub in
 // the background, so an update you push is used from the next launch (and an open
 // window offers to reload into it straight away).
-const CACHE = 'pomegranate-v53';
+const CACHE = 'pomegranate-v54';
 const ASSETS = [
   'index.html', 'style.css',
   'boardsync.js', 'claudestatus.js', 'app.js', 'localtimer.js', 'notify.js', 'score.js', 'analytics.js', 'tasks.js', 'calendar.js', 'journal.js', 'journalvideo.js', 'habits.js', 'sleep.js', 'dashboard.js', 'sync.js', 'livesync.js', 'push.js', 'theme.js', 'shortcuts.js', 'main.js',

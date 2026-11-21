@@ -283,12 +283,35 @@
     check('…and is sent back up', !jcloud('2026-03-02').deleted && (jcloud('2026-03-02').videos || []).some(v => v.id === 'c2'), jcloud('2026-03-02'));
     check('backup includes clip details', (() => { w.eval('window.__dl = download; download = (n, t) => { window.__bk = t; }'); $('backupBtn').click(); w.eval('download = window.__dl'); const e = JSON.parse(w.__bk).journal.entries['2026-03-02']; return !!e && e.videos[0].id === 'c2'; })());
 
+    group('H: Plan your day blocks');
+    g("showTab('today')");
+    const today = g('todayKey()');
+    const pcloud = id => cloud(`users/A/plan/${id}`);
+    const plocal = id => g('dayPlan').blocks[id];
+    $('plTitle').value = 'Deep work'; $('plStart').value = '09:00'; $('plEnd').value = '11:00';
+    $('plForm').requestSubmit();
+    const pid = Object.keys(g('dayPlan').blocks).find(id => plocal(id).title === 'Deep work');
+    await wait(3500);
+    check('new block uploaded', !!pid && (pcloud(pid) || {}).title === 'Deep work' && pcloud(pid).day === today && pcloud(pid).start === '09:00', [pid, pid && pcloud(pid)]);
+    other.set('users/A/plan/phone1', { day: today, title: 'Gym (from phone)', start: '17:00', end: '18:00', done: false, color: 'peach', u: Date.now() + 10 });
+    await wait(1500);
+    check('block from another device arrives and is drawn', (plocal('phone1') || {}).title === 'Gym (from phone)' && [...$('plCal').querySelectorAll('.pl-block b')].some(b => b.textContent === 'Gym (from phone)'), plocal('phone1'));
+    [...$('plCal').querySelectorAll('.pl-block')].find(b => b.querySelector('b').textContent === 'Deep work').querySelector('.pl-check').click();
+    await wait(3500);
+    check('marking done syncs', (pcloud(pid) || {}).done === true, pcloud(pid));
+    other.set('users/A/plan/phone1', { deleted: true, u: Date.now() + 10 });
+    await wait(1500);
+    check('block deleted elsewhere is removed here', !plocal('phone1') && ![...$('plCal').querySelectorAll('.pl-block b')].some(b => b.textContent === 'Gym (from phone)'));
+    [...$('plCal').querySelectorAll('.pl-block')].find(b => b.querySelector('b').textContent === 'Deep work').querySelector('.pl-del').click();
+    await wait(3500);
+    check('removing a block sends a deletion marker', (pcloud(pid) || {}).deleted === true, pcloud(pid));
+
     group('D: a listener error');
     failListeners();
     await wait(100);
     check('error shown', /fake listener failure/.test($('syncPanel').textContent), $('syncPanel').textContent);
     await wait(6000);
-    check('re-subscribed after the 5 s backoff', listening('A') === 6, listening('A'));
+    check('re-subscribed after the 5 s backoff', listening('A') === 7, listening('A'));
     other.set('users/A/tasks/t5', task('t5', 'after reconnect', Date.now()));
     await wait(1000);
     check('changes arrive again', !!local('t5'));
@@ -297,7 +320,7 @@
     await wait(100);
     w.dispatchEvent(new w.Event('online'));
     await wait(500);
-    check('"online" re-subscribes without waiting', listening('A') === 6, listening('A'));
+    check('"online" re-subscribes without waiting', listening('A') === 7, listening('A'));
 
     group('B: signing in with a different account');
     await Sync.signOut();

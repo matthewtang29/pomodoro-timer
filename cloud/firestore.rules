@@ -37,7 +37,7 @@ service cloud.firestore {
     function optNum(d, k) { return d.get(k, null) == null || d[k] is number; }
     function optList(d, k, max) { return d.get(k, null) == null || (d[k] is list && d[k].size() <= max); }
     function optMap(d, k, max) { return d.get(k, null) == null || (d[k] is map && d[k].size() <= max); }
-    // deletion marker for tasks / journal / habits / sleep: { deleted: true, u }
+    // deletion marker for tasks / journal / habits / sleep / plan: { deleted: true, u }
     function tomb(d) { return d.get('deleted', false) == true && d.keys().hasOnly(['deleted', 'u']) && optNum(d, 'u'); }
 
     match /users/{uid} {
@@ -111,6 +111,28 @@ service cloud.firestore {
         allow create, update: if owner(uid) && dateOk(day) && (tomb(request.resource.data) || night(request.resource.data));
         function night(d) {
           return d.size() <= 20 && optStr(d, 'bed', 16) && optStr(d, 'wake', 16) && optNum(d, 'quality') && optNum(d, 'u');
+        }
+      }
+
+      // ---------------------------------------------------------------- plan/{blockId}
+      // rule                                         | written by
+      // idOk(blockId)                                | dashboard.js plForm submit: Date.now().toString(36) + 4 random
+      //                                              | (older device-only blocks: 8 random base36, moved over by loadPlan())
+      // tomb(d)                                      | sync.js flush(): { deleted: true, u: tomb.plan[id] }
+      // day: YYYY-MM-DD                              | dashboard.js plForm submit: todayKey()
+      // title: string <= 500                         | dashboard.js plForm submit (input maxlength 80)
+      // start, end: string <= 16                     | 'HH:MM' from <input type=time>
+      // done: bool, color: string <= 16 (or missing) | dashboard.js: done toggle, PLAN_COLORS
+      // u: number (or missing)                       | sync.js stamp()
+      // <= 20 keys                                   | sync.js flush(): clean(b) = { day, title, start, end, done, color, u }
+      match /plan/{blockId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && idOk(blockId) && (tomb(request.resource.data) || block(request.resource.data));
+        function block(d) {
+          return d.size() <= 20 && d.get('day', null) is string && dateOk(d.day)
+            && d.get('title', null) is string && d.title.size() <= 500
+            && d.get('start', null) is string && d.start.size() <= 16 && d.get('end', null) is string && d.end.size() <= 16
+            && (d.get('done', null) == null || d.done is bool) && optStr(d, 'color', 16) && optNum(d, 'u');
         }
       }
 

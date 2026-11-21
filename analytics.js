@@ -253,7 +253,8 @@ $('backupBtn').addEventListener('click', () => {
     analytics: store, tasks: typeof tasks !== 'undefined' ? tasks : null,
     journal: typeof journal !== 'undefined' ? journal : null,
     habits: typeof habits !== 'undefined' ? habits : null,
-    sleep: typeof sleepLog !== 'undefined' ? sleepLog : null, goal: focusGoalMin };
+    sleep: typeof sleepLog !== 'undefined' ? sleepLog : null,
+    plan: typeof dayPlan !== 'undefined' ? dayPlan : null, goal: focusGoalMin };
   download(`pomodoro-backup-${dayKey(Date.now())}.json`, JSON.stringify(data), 'application/json');
 });
 $('restoreBtn').addEventListener('click', () => $('restoreFile').click());
@@ -270,6 +271,9 @@ $('restoreFile').addEventListener('change', async () => {
     if (isPlainObj(data.tasks) && Array.isArray(data.tasks.items)) cleanTasks(data.tasks); else data.tasks = null;
     if (isPlainObj(data.habits) && isPlainObj(data.habits.items)) cleanHabits(data.habits); else data.habits = null;
     if (isPlainObj(data.sleep) && isPlainObj(data.sleep.entries)) cleanSleep(data.sleep); else data.sleep = null;
+    if (isPlainObj(data.plan) && isPlainObj(data.plan.blocks) && typeof planBlockOk === 'function') {
+      data.plan.blocks = Object.fromEntries(Object.entries(data.plan.blocks).filter(([id, b]) => /^[A-Za-z0-9_-]{1,64}$/.test(id) && planBlockOk(b)));
+    } else data.plan = null;
     if (isPlainObj(data.journal) && isPlainObj(data.journal.entries)) data.journal.entries = cleanEntries(data.journal.entries); else data.journal = null;
   } catch (e) {
     toast("That file isn't a Pomegranate backup");
@@ -290,6 +294,7 @@ $('restoreFile').addEventListener('change', async () => {
     if (data.journal && data.journal.entries && typeof restoreJournal === 'function') restoreJournal(data.journal);
     if (data.habits && data.habits.items && typeof restoreHabits === 'function') restoreHabits(data.habits);
     if (data.sleep && data.sleep.entries && typeof restoreSleep === 'function') restoreSleep(data.sleep);
+    if (data.plan && data.plan.blocks && typeof restorePlan === 'function') restorePlan(data.plan);
     if (data.goal) { setFocusGoal(Number(data.goal)); $('goalSelect').value = String(data.goal); }
   };
   try {

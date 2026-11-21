@@ -172,34 +172,59 @@ function renderDashboard() {
 
 // ================================================================= PLAN YOUR DAY
 // Time blocks for today, drawn as a one-day calendar where each block's height is its length:
-//   dayPlan.days['YYYY-MM-DD'] = [{ id, title, start: 'HH:MM', end: 'HH:MM', done: bool, color }]
-// Kept on this device only (not synced); days older than two weeks are dropped on save.
+//   dayPlan.blocks[id] = { day: 'YYYY-MM-DD', title, start: 'HH:MM', end: 'HH:MM', done: bool, color, u }
+// One block per item so two devices editing the same day don't overwrite each other.
+// Each block syncs as its own cloud document (users/{uid}/plan/{id}); days older than two
+// weeks are dropped on save (and so deleted everywhere).
 // An end of 00:00 means midnight at the end of the day.
-const PLAN_KEY = 'pomodoro-plan-v1';
+const PLAN_KEY = 'pomodoro-plan-v2';
+const PLAN_KEY_V1 = 'pomodoro-plan-v1';    // { days: { 'YYYY-MM-DD': [block] } }, device-only
 const PLAN_HOUR_PX = 48;                   // height of one hour on the calendar
 const PLAN_COLORS = ['sage', 'peach', 'butter'];
 let dayPlan = loadPlan();
 let planScrolledAt = 0;
 
+const planBlockOk = b => isPlainObj(b) && typeof b.day === 'string' && typeof b.title === 'string' &&
+  /^\d\d:\d\d$/.test(b.start) && /^\d\d:\d\d$/.test(b.end);
 function loadPlan() {
+  const out = { blocks: {} };
   try {
     const d = JSON.parse(localStorage.getItem(PLAN_KEY));
-    if (isPlainObj(d) && isPlainObj(d.days)) {
-      for (const k of Object.keys(d.days)) {
-        if (!Array.isArray(d.days[k])) delete d.days[k];
-        else d.days[k] = d.days[k].filter(b => isPlainObj(b) && b.start && b.end);
+    if (isPlainObj(d) && isPlainObj(d.blocks)) {
+      for (const [id, b] of Object.entries(d.blocks)) if (planBlockOk(b)) out.blocks[id] = b;
+      return out;
+    }
+    // the first version kept a list per day on this device only: move it over (it uploads on sign-in)
+    const old = JSON.parse(localStorage.getItem(PLAN_KEY_V1));
+    if (isPlainObj(old) && isPlainObj(old.days)) {
+      for (const [day, list] of Object.entries(old.days)) {
+        if (!Array.isArray(list)) continue;
+        list.forEach(b => {
+          if (!isPlainObj(b)) return;
+          const id = String(b.id || Math.random().toString(36).slice(2, 10)).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+          const blk = { day, title: String(b.title || ''), start: b.start, end: b.end, done: !!b.done, color: b.color || 'sage', u: Date.now() };
+          if (id && planBlockOk(blk)) out.blocks[id] = blk;
+        });
       }
-      return d;
     }
   } catch (e) {}
-  return { days: {} };
+  return out;
 }
 function savePlan() {
   const cut = shiftKey(todayKey(), -14);
-  for (const k of Object.keys(dayPlan.days)) if (k < cut || !dayPlan.days[k].length) delete dayPlan.days[k];
-  safeSetItem(PLAN_KEY, JSON.stringify(dayPlan));
+  for (const [id, b] of Object.entries(dayPlan.blocks)) if (b.day < cut) delete dayPlan.blocks[id];
+  if (typeof Sync !== 'undefined') Sync.stamp('plan');
+  if (safeSetItem(PLAN_KEY, JSON.stringify(dayPlan))) { try { localStorage.removeItem(PLAN_KEY_V1); } catch (e) {} }
 }
-function planBlocks(k) { return dayPlan.days[k] || []; }
+function restorePlan(data) {
+  dayPlan = { blocks: { ...data.blocks } };
+  savePlan();
+  if (!$('todayView').hidden) renderDashboard();
+}
+function planBlocks(k) {
+  return Object.entries(dayPlan.blocks).filter(([, b]) => b.day === k).map(([id, b]) => ({ ...b, id }))
+    .sort((a, b) => planStart(a) - planStart(b) || planEnd(a) - planEnd(b));
+}
 const planStart = b => toMin(b.start);
 const planEnd = b => toMin(b.end) || 1440;
 function minToHHMM(m) { m = Math.max(0, Math.min(1439, m)); return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; }
@@ -311,12 +336,16 @@ function renderPlan(openTasks) {
     chk.type = 'button';
     chk.setAttribute('aria-pressed', b.done ? 'true' : 'false');
     chk.setAttribute('aria-label', `${b.done ? 'Not done' : 'Done'}: ${b.title}`);
-    chk.addEventListener('click', () => { b.done = !b.done; savePlan(); renderPlan(openTasks); });
+    chk.addEventListener('click', () => {
+      const it = dayPlan.blocks[b.id];
+      if (it) { it.done = !it.done; savePlan(); }
+      renderPlan(openTasks);
+    });
     const del = el('button', 'pl-del', '×');
     del.type = 'button';
     del.setAttribute('aria-label', `Remove ${b.title}`);
     del.addEventListener('click', () => {
-      dayPlan.days[today] = planBlocks(today).filter(x => x !== b);
+      delete dayPlan.blocks[b.id];
       savePlan();
       renderDashboard();
     });
@@ -351,12 +380,10 @@ $('plForm').addEventListener('submit', e => {
   const start = $('plStart').value, end = $('plEnd').value;
   if (!title) return err('Give the block a name.');
   if (!start || !end) return err('Pick a start and an end time.');
-  const b = { id: Math.random().toString(36).slice(2, 10), title, start, end, done: false };
+  const b = { day: todayKey(), title, start, end, done: false };
   if (planEnd(b) <= planStart(b)) return err('The end time has to be after the start.');
-  const today = todayKey();
-  const list = planBlocks(today);
-  b.color = PLAN_COLORS[list.length % PLAN_COLORS.length];
-  dayPlan.days[today] = list.concat(b);
+  b.color = PLAN_COLORS[planBlocks(b.day).length % PLAN_COLORS.length];
+  dayPlan.blocks[Date.now().toString(36) + Math.random().toString(36).slice(2, 6)] = b;
   savePlan();
   $('plErr').hidden = true;
   $('plTitle').value = '';

@@ -1,5 +1,5 @@
 // ================================================================= CLOUD SYNC
-// Sign in with Google to keep tasks, journal entries, habits, sleep, study history and the focus
+// Sign in with Google to keep tasks, journal entries, habits, sleep, the day plan, study history and the focus
 // goal in sync between devices (Firebase Firestore, free tier).
 //
 // How it works
@@ -20,6 +20,7 @@
 //                users/{uid}/journal/{YYYY-MM-DD}
 //                users/{uid}/habits/{habitId}
 //                users/{uid}/sleep/{YYYY-MM-DD}
+//                users/{uid}/plan/{blockId}      (Plan your day time blocks, dashboard.js)
 //                users/{uid}/days/{YYYY-MM-DD}__{deviceId}
 //                users/{uid}/meta/settings
 //                users/{uid}/robot/claude   (Claude Code status for the desk robot: written by the
@@ -58,13 +59,14 @@ const Sync = (() => {
 
   // ---------------------------------------------------------------- change tracking (always on)
   // prev: last known JSON of each item (without its "u"), to notice what changed on save
-  const prev = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
+  const prev = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {}, plan: {} };
   const tomb = read(LS.tomb, { tasks: {}, journal: {} });   // deleted item -> when
   tomb.habits = tomb.habits || {};
   tomb.sleep = tomb.sleep || {};
+  tomb.plan = tomb.plan || {};
   let remoteDays = read(LS.remote, {});                      // deviceId -> { date: day }
   let metaU = read(LS.metaU, 0);
-  const dirty = { tasks: new Set(), journal: new Set(), days: new Set(), habits: new Set(), sleep: new Set(), meta: false };
+  const dirty = { tasks: new Set(), journal: new Set(), days: new Set(), habits: new Set(), sleep: new Set(), plan: new Set(), meta: false };
   // While writing changes that came from elsewhere (the cloud, a backup), the saves must not
   // look like fresh local edits. A Set: only those ids are taken as-is; anything else that
   // changed is a real local edit not saved yet (e.g. focus time ticking on the linked task)
@@ -79,6 +81,7 @@ const Sync = (() => {
     if (kind === 'journal') return journal.entries;
     if (kind === 'habits') return habits.items;
     if (kind === 'sleep') return sleepLog.entries;
+    if (kind === 'plan') return dayPlan.blocks;
     return store.days;
   }
 
@@ -112,14 +115,14 @@ const Sync = (() => {
     for (const kind in tomb) for (const id in tomb[kind]) if (tomb[kind][id] < cut) { delete tomb[kind][id]; n++; }
     if (n) write(LS.tomb, tomb);
   }
-  const hasDirty = () => dirty.meta || ['tasks', 'journal', 'days', 'habits', 'sleep'].some(k => dirty[k].size > 0);
+  const hasDirty = () => dirty.meta || ['tasks', 'journal', 'days', 'habits', 'sleep', 'plan'].some(k => dirty[k].size > 0);
 
   // ---------------------------------------------------------------- restoring a backup
   // Old backups may hold items saved before sync existed (no "u"). Give them their own edit
   // time (or 1) so other devices accept them, without making them look newer than they are.
   function withTimes(data) {
     const lists = [data.tasks && data.tasks.items, data.journal && data.journal.entries,
-      data.habits && data.habits.items, data.sleep && data.sleep.entries];
+      data.habits && data.habits.items, data.sleep && data.sleep.entries, data.plan && data.plan.blocks];
     lists.forEach(l => Object.values(l || {}).forEach(it => {
       if (it && typeof it === 'object' && !it.u) it.u = it.updated || it.created || 1;
     }));
@@ -147,6 +150,7 @@ const Sync = (() => {
       ['journal', data.journal && cleanEntries(data.journal.entries), saveJournal],
       ['habits', data.habits && data.habits.items, saveHabits],
       ['sleep', data.sleep && data.sleep.entries, saveSleep],
+      ['plan', data.plan && data.plan.blocks, savePlan],
       ['days', data.analytics && data.analytics.days, () => saveStore(true)],
     ];
     try {
@@ -185,7 +189,7 @@ const Sync = (() => {
   }
 
   function primePrev() {
-    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(kind => {
+    ['tasks', 'journal', 'days', 'habits', 'sleep', 'plan'].forEach(kind => {
       for (const [id, item] of Object.entries(itemsOf(kind))) prev[kind][id] = bare(item);
     });
   }
@@ -225,7 +229,7 @@ const Sync = (() => {
   let sdkPromise = null;
   let unsubs = [];
   let firstLoaded = {};
-  let remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
+  let remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {}, plan: {} };
   let flushTimer = null, flushing = false;
   let state = 'off', lastSynced = 0, lastError = '';
   let justSignedIn = false;   // show the welcome message only right after pressing Sign in
@@ -298,7 +302,7 @@ const Sync = (() => {
     write(LS.enabled, true);
     write(LS.uid, u.uid);
     firstLoaded = {};
-    remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {} };
+    remoteU = { tasks: {}, journal: {}, days: {}, habits: {}, sleep: {}, plan: {} };
     setState('syncing');
     listen();
     db.collection(`users/${u.uid}/devices`).doc(deviceId).set({ name: deviceName, lastSeen: now() }).catch(() => {});
@@ -322,7 +326,7 @@ const Sync = (() => {
       retryMs = Math.min(retryMs ? retryMs * 2 : 5000, 300000);
       retryTimer = setTimeout(listen, retryMs);
     };
-    unsubs = ['tasks', 'journal', 'days', 'meta', 'habits', 'sleep'].map(kind => col(kind).onSnapshot(s => onSnap(kind, s), err));
+    unsubs = ['tasks', 'journal', 'days', 'meta', 'habits', 'sleep', 'plan'].map(kind => col(kind).onSnapshot(s => onSnap(kind, s), err));
   }
 
   // Signed in with a different account than the one this device last synced with.
@@ -338,7 +342,7 @@ const Sync = (() => {
     h.id = 'acctSwitchTitle';
     d.append(h,
       el('p', 'sync-note', `You signed in as ${u.email || 'a different Google account'}, but this device last synced with another account.`),
-      el('p', 'sync-note', 'Merge: this device\'s tasks, journal, habits, sleep and study history are added to this account.'),
+      el('p', 'sync-note', 'Merge: this device\'s tasks, journal, habits, sleep, day plan and study history are added to this account.'),
       el('p', 'sync-note', 'Replace: they are removed from this device (the other account keeps its own copy in the cloud) and this account\'s data is loaded instead. Use Back up first if something here never synced.'));
     const row = el('div', 'tm-btns');
     const btn = (text, cls, fn) => {
@@ -368,12 +372,13 @@ const Sync = (() => {
       journal.entries = {}; jDirty = false; saveJournal();
       habits.items = {}; saveHabits();
       sleepLog.entries = {}; saveSleep();
+      dayPlan.blocks = {}; savePlan();
       store = { v: 1, days: {} }; liveSession = null; saveStore(true);
     } finally { applying = false; }
     Object.keys(tomb).forEach(k => { tomb[k] = {}; });
     write(LS.tomb, tomb);
     metaU = 0; write(LS.metaU, 0);   // take the account's goal
-    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => dirty[k].clear()); dirty.meta = false;
+    ['tasks', 'journal', 'days', 'habits', 'sleep', 'plan'].forEach(k => dirty[k].clear()); dirty.meta = false;
     adoptOwnDays = true;   // load this device's study history if this account already has some
     refreshViews();
   }
@@ -457,7 +462,7 @@ const Sync = (() => {
           changed = true;
           return;
         }
-        // tasks / journal / habits / sleep
+        // tasks / journal / habits / sleep / plan
         remoteU[kind][doc.id] = data.u || 0;
         if (ch.type === 'removed') return;
         const old = data.deleted && (data.u || 0) < cut;
@@ -510,6 +515,7 @@ const Sync = (() => {
         }
         if (kind === 'habits') saveHabits();
         if (kind === 'sleep') saveSleep();
+        if (kind === 'plan') savePlan();
         if (kind === 'days') write(LS.remote, remoteDays);
         write(LS.tomb, tomb);
       }
@@ -521,7 +527,7 @@ const Sync = (() => {
     if (!firstLoaded[kind]) {
       firstLoaded[kind] = true;
       queueLocalNewer(kind);
-      if (['tasks', 'journal', 'days', 'meta', 'habits', 'sleep'].every(k => firstLoaded[k])) {
+      if (['tasks', 'journal', 'days', 'meta', 'habits', 'sleep', 'plan'].every(k => firstLoaded[k])) {
         flush().then(() => {
           if (justSignedIn) toast('Sync is on: tasks, journal and history now sync across your devices');
           justSignedIn = false;
@@ -605,6 +611,11 @@ const Sync = (() => {
       if (e) ops.push(['set', col('sleep').doc(id), clean(e)]);
       else if (tomb.sleep[id]) ops.push(['set', col('sleep').doc(id), { deleted: true, u: tomb.sleep[id] }]);
     });
+    dirty.plan.forEach(id => {
+      const b = dayPlan.blocks[id];
+      if (b) ops.push(['set', col('plan').doc(id), clean(b)]);
+      else if (tomb.plan[id]) ops.push(['set', col('plan').doc(id), { deleted: true, u: tomb.plan[id] }]);
+    });
     dirty.days.forEach(date => {
       const d = store.days[date];
       const ref = col('days').doc(`${date}__${deviceId}`);
@@ -614,8 +625,8 @@ const Sync = (() => {
     if (dirty.meta) ops.push(['set', col('meta').doc('settings'), { goal: focusGoalMin, u: metaU || now() }]);
     if (!ops.length) { setState('synced'); return; }
 
-    const sent = { tasks: [...dirty.tasks], journal: [...dirty.journal], days: [...dirty.days], habits: [...dirty.habits], sleep: [...dirty.sleep], meta: dirty.meta };
-    dirty.tasks.clear(); dirty.journal.clear(); dirty.habits.clear(); dirty.sleep.clear(); dirty.days.clear(); dirty.meta = false;
+    const sent = { tasks: [...dirty.tasks], journal: [...dirty.journal], days: [...dirty.days], habits: [...dirty.habits], sleep: [...dirty.sleep], plan: [...dirty.plan], meta: dirty.meta };
+    dirty.tasks.clear(); dirty.journal.clear(); dirty.habits.clear(); dirty.sleep.clear(); dirty.plan.clear(); dirty.days.clear(); dirty.meta = false;
     flushing = true;
     let ended;
     inflight = new Promise(r => { ended = r; });
@@ -633,7 +644,7 @@ const Sync = (() => {
     } catch (e) {
       // put everything back so it's retried
       sent.tasks.forEach(x => dirty.tasks.add(x)); sent.journal.forEach(x => dirty.journal.add(x));
-      sent.days.forEach(x => dirty.days.add(x)); sent.habits.forEach(x => dirty.habits.add(x)); sent.sleep.forEach(x => dirty.sleep.add(x)); if (sent.meta) dirty.meta = true;
+      sent.days.forEach(x => dirty.days.add(x)); sent.habits.forEach(x => dirty.habits.add(x)); sent.sleep.forEach(x => dirty.sleep.add(x)); sent.plan.forEach(x => dirty.plan.add(x)); if (sent.meta) dirty.meta = true;
       setState('error', navigator.onLine ? (e.message || String(e)) : 'Offline');
       setTimeout(() => schedule(2000), 30000);
     } finally {
@@ -667,7 +678,7 @@ const Sync = (() => {
   // This device keeps its own copy (Back up / Clear in Settings handle that).
   // ('robot' holds the laptop-written Claude Code status and 'limits' the cloud function's rate-limit
   // counters; the rules allow the owner to delete both, for this)
-  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot', 'limits'];
+  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'plan', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot', 'limits'];
   async function deleteCloudData() {
     if (!user) return;
     if (!confirm('Delete all your Pomegranate data from the cloud and remove your sign-in?\n\n' +
@@ -778,7 +789,7 @@ const Sync = (() => {
     return wrap;
   }
   function queueAll() {
-    ['tasks', 'journal', 'days', 'habits', 'sleep'].forEach(k => queueLocalNewer(k));
+    ['tasks', 'journal', 'days', 'habits', 'sleep', 'plan'].forEach(k => queueLocalNewer(k));
   }
 
   // ---------------------------------------------------------------- start
