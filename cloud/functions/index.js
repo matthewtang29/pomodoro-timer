@@ -302,8 +302,15 @@ exports.calendarFeed = onRequest({ cors: false, memory: '256MiB', maxInstances: 
   const keyDoc = await db.doc(`users/${u}/calfeed/key`).get();
   if (!keyDoc.exists || !sameKey(keyDoc.data().key, k)) { res.status(404).send('Not found'); return; }
   if (!await allowed(u, 'feed')) { res.set('Retry-After', '600').status(429).send('Too many requests'); return; }
-  const [tasks, plan] = await Promise.all(['tasks', 'plan'].map(async kind =>
-    (await db.collection(`users/${u}/${kind}`).get()).docs.map(d => ({ ...d.data(), id: d.id }))));
+  // Each doc read is billed (50,000 a day free), and calendar apps fetch often, so only read what
+  // can appear: tasks with a due date (not undated ones or deletion markers) and recent blocks.
+  // Both are single-field queries, which Firestore indexes by itself.
+  const cutoff = new Date(Date.now() - FEED_PAST_DAYS * DAY_MS).toISOString().slice(0, 10);
+  const docs = async q => (await q.get()).docs.map(d => ({ ...d.data(), id: d.id }));
+  const [tasks, plan] = await Promise.all([
+    docs(db.collection(`users/${u}/tasks`).where('due', '!=', null)),
+    docs(db.collection(`users/${u}/plan`).where('day', '>=', cutoff)),
+  ]);
   res.set('Content-Type', 'text/calendar; charset=utf-8');
   res.set('Content-Disposition', 'inline; filename="pomegranate.ics"');
   res.set('Cache-Control', 'private, max-age=300');

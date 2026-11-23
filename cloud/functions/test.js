@@ -12,6 +12,23 @@ const fake = {
   pushes: [],        // Web Push messages sent
   reset() { this.docs.clear(); this.enqueued = []; this.pushes = []; },
 };
+// a collection, or a query on one: where() with the operators the code uses. Like Firestore,
+// != and >= skip docs that don't have the field ('!=' null also skips null values).
+const OPS = {
+  '!=': (v, x) => v !== undefined && v !== null && v !== x,
+  '>=': (v, x) => v !== undefined && v !== null && typeof v === typeof x && v >= x,
+  '==': (v, x) => v === x,
+};
+const query = (prefix, filters) => ({
+  where: (field, op, value) => query(prefix, [...filters, d => OPS[op](d[field], value)]),
+  get: async () => {
+    fake.reads = (fake.reads || 0);
+    const docs = [...fake.docs].filter(([p, d]) => p.startsWith(prefix + '/') && filters.every(f => f(d)))
+      .map(([p, d]) => ({ id: p.split('/').pop(), ref: docRef(p), data: () => d }));
+    fake.reads += docs.length;
+    return { docs };
+  },
+});
 const docRef = path => ({
   path,
   delete: async () => { fake.docs.delete(path); },
@@ -19,11 +36,7 @@ const docRef = path => ({
 });
 const db = {
   doc: docRef,
-  collection: prefix => ({
-    get: async () => ({
-      docs: [...fake.docs].filter(([p]) => p.startsWith(prefix + '/')).map(([p, d]) => ({ id: p.split('/').pop(), ref: docRef(p), data: () => d })),
-    }),
-  }),
+  collection: prefix => query(prefix, []),
   runTransaction: async fn => fn({
     get: async ref => ({ exists: fake.docs.has(ref.path), data: () => fake.docs.get(ref.path) }),
     set: (ref, data) => { fake.docs.set(ref.path, data); },
@@ -131,6 +144,12 @@ async function main() {
     const KEY = 'a'.repeat(40);
     fake.docs.set('users/u1/calfeed/key', { key: KEY, created: NOW });
     fake.docs.set('users/u1/tasks/t1', { title: 'Essay', due: '2026-11-20' });
+    fake.docs.set('users/u1/tasks/t2', { title: 'Someday', due: null });
+    fake.docs.set('users/u1/tasks/t3', { title: 'Old style, no due field' });
+    fake.docs.set('users/u1/tasks/t4', { deleted: true, u: NOW });
+    const today = new Date().toISOString().slice(0, 10);
+    fake.docs.set('users/u1/plan/p1', { day: today, title: 'Revise', start: '09:00', end: '10:00' });
+    fake.docs.set('users/u1/plan/p2', { day: '2020-01-01', title: 'Ancient', start: '09:00', end: '10:00' });
     const call = async query => {
       const res = { code: 0, body: '', headers: {} };
       res.status = c => { res.code = c; return res; };
@@ -139,7 +158,10 @@ async function main() {
       await fns.calendarFeed({ method: 'GET', query }, res);
       return res;
     };
+    fake.reads = 0;
     let r = await call({ u: 'u1', k: KEY });
+    check('feed endpoint: queries read only dated tasks and recent blocks (t1, p1)', fake.reads === 2, fake.reads);
+    check('feed endpoint: recent block in, old block out', r.body.includes('SUMMARY:Revise') && !r.body.includes('Ancient'));
     check('feed endpoint: right key gets the calendar', r.code === 200 && r.headers['Content-Type'].startsWith('text/calendar') && r.body.includes('SUMMARY:Essay'), r.code);
     r = await call({ u: 'u1', k: 'b'.repeat(40) });
     check('feed endpoint: wrong key is 404', r.code === 404 && !r.body.includes('Essay'), r.code);
