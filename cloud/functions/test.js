@@ -12,7 +12,11 @@ const fake = {
   pushes: [],        // Web Push messages sent
   reset() { this.docs.clear(); this.enqueued = []; this.pushes = []; },
 };
-const docRef = path => ({ path, delete: async () => { fake.docs.delete(path); } });
+const docRef = path => ({
+  path,
+  delete: async () => { fake.docs.delete(path); },
+  get: async () => ({ exists: fake.docs.has(path), data: () => fake.docs.get(path) }),
+});
 const db = {
   doc: docRef,
   collection: prefix => ({
@@ -29,6 +33,7 @@ const stubs = {
   'firebase-functions/v2': { setGlobalOptions() {}, logger: { warn() {}, error() {}, info() {} } },
   'firebase-functions/v2/firestore': { onDocumentWritten: (opts, fn) => fn },
   'firebase-functions/v2/tasks': { onTaskDispatched: (opts, fn) => fn },
+  'firebase-functions/v2/https': { onRequest: (opts, fn) => fn },
   'firebase-functions/params': { defineSecret: () => ({ value: () => 'test-secret' }) },
   'firebase-admin/app': { initializeApp() {} },
   'firebase-admin/firestore': { getFirestore: () => db },
@@ -42,7 +47,7 @@ Module._load = function (request, ...rest) {
 
 process.env.POMEGRANATE_TEST = '1';
 const fns = require('./index.js');
-const { _upcomingAlerts: upcomingAlerts, _validState: validState, _checkLimit: checkLimit, _LIMITS: LIMITS } = fns;
+const { _buildCalendar: buildCalendar, _upcomingAlerts: upcomingAlerts, _validState: validState, _checkLimit: checkLimit, _LIMITS: LIMITS } = fns;
 
 // ---------------------------------------------------------------- tiny runner
 let passed = 0, failed = 0;
@@ -89,6 +94,63 @@ async function main() {
   {
     const a = upcomingAlerts(session({ focus: 99, brk: 99, cycles: 20 }));
     check('largest custom session stays under the 60-task cap', a.length === 39 && a.length <= 60, a.length);
+  }
+
+
+  // ---------------------------------------------------------------- calendar feed
+  {
+    const ics = buildCalendar([
+      { id: 't1', title: 'Lab report, part 2; draft', due: '2026-11-25', project: 'ECE140', subtasks: [{ title: 'graphs', done: true }] },
+      { id: 't2', title: 'Done one', due: '2026-11-25', done: NOW },
+      { id: 't3', title: 'No date' },
+      { id: 't4', deleted: true, u: NOW },
+      { id: 't5', title: 'x'.repeat(200), due: '2026-12-31' },
+    ], [
+      { id: 'p1', day: '2026-11-16', title: 'Study', start: '09:00', end: '10:30', done: true },
+      { id: 'p2', day: '2026-11-16', title: 'Late', start: '23:00', end: '00:30' },
+      { id: 'p3', day: '2026-01-01', title: 'Too old', start: '09:00', end: '10:00' },
+      { id: 'p4', day: '2026-11-16', title: 'Bad time', start: '9', end: '10:00' },
+    ], NOW);
+    const lines = ics.split('\r\n');
+    check('feed: starts and ends as a calendar', lines[0] === 'BEGIN:VCALENDAR' && lines[lines.length - 2] === 'END:VCALENDAR' && lines[lines.length - 1] === '', lines.slice(-2));
+    check('feed: CRLF line ends only', !/[^\r]\n/.test(ics));
+    check('feed: lines at most 75 bytes', lines.every(l => Buffer.byteLength(l) <= 75), lines.find(l => Buffer.byteLength(l) > 75));
+    const events = ics.match(/BEGIN:VEVENT/g) || [];
+    check('feed: open dated tasks + recent valid blocks only (t1, t5, p1, p2)', events.length === 4, events.length);
+    check('feed: task is all-day on its due date', ics.includes('DTSTART;VALUE=DATE:20261125\r\nDTEND;VALUE=DATE:20261126'));
+    check('feed: text escaped', ics.includes('SUMMARY:Lab report\\, part 2\\; draft'));
+    check('feed: project and subtasks in notes', ics.includes('DESCRIPTION:#ECE140\\n☑ graphs'));
+    check('feed: year-end due rolls over', ics.includes('DTEND;VALUE=DATE:20270101'));
+    check('feed: block at its local time', ics.includes('DTSTART:20261116T090000\r\nDTEND:20261116T103000\r\nSUMMARY:✓ Study'));
+    check('feed: block past midnight ends next day', ics.includes('DTEND:20261117T003000'));
+    const unfolded = ics.replace(/\r\n /g, '');
+    check('feed: long title survives folding', unfolded.includes('SUMMARY:' + 'x'.repeat(200)));
+  }
+  {
+    fake.reset();
+    const KEY = 'a'.repeat(40);
+    fake.docs.set('users/u1/calfeed/key', { key: KEY, created: NOW });
+    fake.docs.set('users/u1/tasks/t1', { title: 'Essay', due: '2026-11-20' });
+    const call = async query => {
+      const res = { code: 0, body: '', headers: {} };
+      res.status = c => { res.code = c; return res; };
+      res.set = (h, v) => { res.headers[h] = v; return res; };
+      res.send = b => { res.body = b; return res; };
+      await fns.calendarFeed({ method: 'GET', query }, res);
+      return res;
+    };
+    let r = await call({ u: 'u1', k: KEY });
+    check('feed endpoint: right key gets the calendar', r.code === 200 && r.headers['Content-Type'].startsWith('text/calendar') && r.body.includes('SUMMARY:Essay'), r.code);
+    r = await call({ u: 'u1', k: 'b'.repeat(40) });
+    check('feed endpoint: wrong key is 404', r.code === 404 && !r.body.includes('Essay'), r.code);
+    r = await call({ u: 'u2', k: KEY });
+    check('feed endpoint: no feed set up is 404', r.code === 404, r.code);
+    r = await call({ u: 'u1', k: 'short' });
+    check('feed endpoint: malformed key is 404', r.code === 404, r.code);
+    r = await call({ u: 'u1/../x', k: KEY });
+    check('feed endpoint: malformed uid is 404', r.code === 404, r.code);
+    for (let i = 0; i < LIMITS.feed.perMinute; i++) r = await call({ u: 'u1', k: KEY });
+    check('feed endpoint: rate-limited after ' + LIMITS.feed.perMinute + ' a minute', r.code === 429, r.code);
   }
 
   // ---------------------------------------------------------------- validState

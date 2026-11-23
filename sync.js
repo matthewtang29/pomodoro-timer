@@ -678,7 +678,7 @@ const Sync = (() => {
   // This device keeps its own copy (Back up / Clear in Settings handle that).
   // ('robot' holds the laptop-written Claude Code status and 'limits' the cloud function's rate-limit
   // counters; the rules allow the owner to delete both, for this)
-  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'plan', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot', 'limits'];
+  const CLOUD_KINDS = ['tasks', 'journal', 'habits', 'sleep', 'plan', 'days', 'meta', 'devices', 'live', 'relay', 'push', 'robot', 'limits', 'calfeed'];
   async function deleteCloudData() {
     if (!user) return;
     if (!confirm('Delete all your Pomegranate data from the cloud and remove your sign-in?\n\n' +
@@ -754,12 +754,91 @@ const Sync = (() => {
     const out = el('button', 'small', 'Sign out'); out.type = 'button'; out.addEventListener('click', signOut);
     row.append(now_, out);
     box.append(row);
+    box.append(calendarFeed(user.uid));
     box.append(robotIds(user.uid));
     const del = el('button', 'small danger sync-delete', 'Delete my cloud data');
     del.type = 'button';
     del.addEventListener('click', deleteCloudData);
     box.append(del);
   }
+  // A copy button for value; if the clipboard is blocked it selects textEl so Ctrl+C works
+  function copyButton(label, value, textEl) {
+    const copy = el('button', 'small', 'Copy');
+    copy.type = 'button';
+    copy.setAttribute('aria-label', `Copy ${label.toLowerCase()}`);
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(value); copy.textContent = 'Copied'; }
+      catch (e) {
+        const r = document.createRange(); r.selectNodeContents(textEl);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        copy.textContent = 'Press Ctrl+C';
+      }
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+    });
+    return copy;
+  }
+
+  // ---------------------------------------------------------------- calendar feed
+  // A private link that Apple Calendar (or Google/Outlook) subscribes to: your open tasks on their
+  // due dates and your Plan your day blocks, read-only. Served by the calendarFeed cloud function
+  // (cloud/functions/index.js), which checks the link's key against users/{uid}/calfeed/key.
+  const FEED_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/calendarFeed`;
+  let feedOpen = false, feedKey, feedFor = null, feedBusy = false, feedLoading = false;   // feedKey: undefined = not loaded, null = off
+  function newFeedKey() {
+    const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(40));
+    return Array.from(bytes, b => abc[b % 62]).join('');   // 248 of 256 values map evenly: fine for a link key
+  }
+  const feedDoc = uid => db.doc(`users/${uid}/calfeed/key`);
+  async function loadFeed(uid) {
+    if ((feedFor === uid && feedKey !== undefined) || feedLoading) return;
+    feedFor = uid; feedKey = undefined; feedLoading = true;
+    try { const s = await feedDoc(uid).get(); if (feedFor === uid) feedKey = s.exists ? s.data().key : null; }
+    catch (e) { feedFor = null; feedOpen = false; toast('Could not load the calendar link: ' + (e.message || e.code)); }
+    feedLoading = false;
+    renderSyncPanel();
+  }
+  async function setFeed(uid, on) {
+    if (feedBusy) return;
+    feedBusy = true;
+    try {
+      if (on) { const key = newFeedKey(); await feedDoc(uid).set({ key, created: Date.now() }); feedKey = key; }
+      else { await feedDoc(uid).delete(); feedKey = null; }
+    } catch (e) { toast('Could not change the calendar link: ' + (e.message || e.code)); }
+    feedBusy = false;
+    renderSyncPanel();
+  }
+  function calendarFeed(uid) {
+    const wrap = el('details', 'sync-ids');
+    wrap.open = feedOpen;
+    wrap.append(el('summary', null, 'Calendar feed (Apple Calendar)'));
+    wrap.addEventListener('toggle', () => { feedOpen = wrap.open; if (feedOpen) loadFeed(uid); });
+    if (feedOpen) loadFeed(uid);
+    wrap.append(el('p', 'sync-note', 'Shows your open tasks on their due dates and your Plan your day blocks in your calendar app. ' +
+      'It updates by itself every 15 minutes to an hour, and is read-only there: change things here.'));
+    if (feedFor !== uid || feedKey === undefined) { wrap.append(el('p', 'sync-note', 'Loading…')); return wrap; }
+    const btn = (label, cls, fn) => { const b = el('button', cls, label); b.type = 'button'; b.disabled = feedBusy; b.addEventListener('click', fn); return b; };
+    if (!feedKey) {
+      wrap.append(btn('Make my calendar link', 'small', () => setFeed(uid, true)));
+      return wrap;
+    }
+    const url = `${FEED_URL}?u=${encodeURIComponent(uid)}&k=${feedKey}`;
+    const row = el('div', 'sync-id');
+    const code = el('code', null, url);
+    row.append(el('span', null, 'Link'), code, copyButton('Calendar link', url, code));
+    wrap.append(row);
+    const add = btn('Add to Apple Calendar', 'small primary', () => { location.href = url.replace(/^https:/, 'webcal:'); });
+    wrap.append(el('p', 'sync-note', 'On iPhone, iPad or Mac: tap Add to Apple Calendar, or in Calendar choose File → New Calendar Subscription and paste the link. ' +
+      'Anyone with this link can see your tasks; Reset makes a new one and the old link stops working.'));
+    const r2 = el('div', 'sync-row');
+    r2.style.flexWrap = 'wrap';
+    r2.append(add,
+      btn('Reset link', 'small', () => { if (confirm('Make a new calendar link? The old one stops working, so you\'ll need to subscribe again.')) setFeed(uid, true); }),
+      btn('Turn off', 'small', () => { if (confirm('Turn off the calendar link? Calendars subscribed to it stop updating.')) setFeed(uid, false); }));
+    wrap.append(r2);
+    return wrap;
+  }
+
   // The values the laptop's Claude Code status script needs in its config.json
   let idsOpen = false;   // the panel redraws on every sync; keep this section open if it was
   function robotIds(uid) {
@@ -771,19 +850,7 @@ const Sync = (() => {
     [['Project id', FIREBASE_CONFIG.projectId], ['Doc path', `users/${uid}/robot/claude`], ['Your user id', uid]].forEach(([label, value]) => {
       const row = el('div', 'sync-id');
       const code = el('code', null, value);
-      const copy = el('button', 'small', 'Copy');
-      copy.type = 'button';
-      copy.setAttribute('aria-label', `Copy ${label.toLowerCase()}`);
-      copy.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(value); copy.textContent = 'Copied'; }
-        catch (e) {   // clipboard blocked: select the text so Ctrl+C works
-          const r = document.createRange(); r.selectNodeContents(code);
-          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
-          copy.textContent = 'Press Ctrl+C';
-        }
-        setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
-      });
-      row.append(el('span', null, label), code, copy);
+      row.append(el('span', null, label), code, copyButton(label, value, code));
       wrap.append(row);
     });
     return wrap;

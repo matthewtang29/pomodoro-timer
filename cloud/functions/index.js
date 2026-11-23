@@ -1,5 +1,6 @@
 // Pomegranate cloud functions: send "focus done" / "break over" / "session complete"
-// alerts to every signed-in device, even when the app is closed.
+// alerts to every signed-in device, even when the app is closed, and serve a calendar feed
+// of your tasks (calendarFeed, near the end).
 //
 // How it works
 // 1. Whenever a session is started, paused, resumed, exited or continued, the app
@@ -217,7 +218,100 @@ exports.sendTimerAlert = onTaskDispatched(
   },
 );
 
+// ---------------------------------------------------------------- calendar feed
+// A read-only calendar of your open tasks (all-day, on their due date) and your Plan your day
+// blocks (at their times), for Apple Calendar or any app that can subscribe to a calendar.
+//
+// The link is  .../calendarFeed?u={uid}&k={key}. The key is a long random string the app makes
+// and saves in users/{uid}/calfeed/key (⚙ Settings → Sync → Calendar feed). Anyone with the link
+// can read the calendar, so Reset there makes a new key and the old link stops working.
+// Calendar apps fetch the link every 5 minutes to an hour; LIMITS.feed caps how often.
+//
+// Times are "floating" (no time zone): a block at 09:00 shows at 09:00 wherever you are, the same
+// way the app shows it.
+
+const { onRequest } = require('firebase-functions/v2/https');
+const crypto = require('crypto');
+LIMITS.feed = { perMinute: 10, perHour: 120 };
+const FEED_PAST_DAYS = 60;   // Plan your day blocks older than this are left out
+
+const validUid = u => typeof u === 'string' && /^[A-Za-z0-9]{1,128}$/.test(u);
+const validKey = k => typeof k === 'string' && /^[A-Za-z0-9]{32,64}$/.test(k);
+function sameKey(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+// Text value: escape \ ; , and new lines (RFC 5545 3.3.11)
+const icsText = s => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+// Lines longer than 75 bytes continue on the next line after a space (RFC 5545 3.1)
+function fold(line) {
+  const out = [];
+  let cur = '', bytes = 0;
+  for (const ch of line) {
+    const n = Buffer.byteLength(ch);
+    if (bytes + n > (out.length ? 74 : 75)) { out.push(cur); cur = ''; bytes = 0; }
+    cur += ch; bytes += n;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+const isDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+const isTime = t => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
+const icsDate = d => d.replace(/-/g, '');
+function addDays(d, n) {
+  const x = new Date(d + 'T00:00:00Z');
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+const icsStamp = ms => new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+
+// tasks, plan: the docs' data with their ids as { id, ...data }. now: ms (for DTSTAMP and the cut-off).
+function buildCalendar(tasks, plan, now) {
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pomegranate//Calendar feed//EN', 'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH', 'X-WR-CALNAME:Pomegranate', 'REFRESH-INTERVAL;VALUE=DURATION:PT15M', 'X-PUBLISHED-TTL:PT15M'];
+  const stamp = icsStamp(now);
+  for (const t of tasks) {
+    if (t.deleted || t.done || typeof t.title !== 'string' || !isDay(t.due)) continue;
+    const notes = [];
+    if (t.project) notes.push('#' + t.project);
+    const subs = Array.isArray(t.subtasks) ? t.subtasks.filter(s => s && typeof s.title === 'string') : [];
+    subs.forEach(s => notes.push((s.done ? '☑ ' : '☐ ') + s.title));
+    L.push('BEGIN:VEVENT', `UID:task-${t.id}@pomegranate`, `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${icsDate(t.due)}`, `DTEND;VALUE=DATE:${icsDate(addDays(t.due, 1))}`,
+      `SUMMARY:${icsText(t.title)}`, 'TRANSP:TRANSPARENT');   // all-day tasks don't make you look busy
+    if (notes.length) L.push(`DESCRIPTION:${icsText(notes.join('\n'))}`);
+    L.push('END:VEVENT');
+  }
+  const cutoff = new Date(now - FEED_PAST_DAYS * DAY_MS).toISOString().slice(0, 10);
+  for (const b of plan) {
+    if (b.deleted || typeof b.title !== 'string' || !isDay(b.day) || b.day < cutoff || !isTime(b.start) || !isTime(b.end)) continue;
+    const endDay = b.end <= b.start ? addDays(b.day, 1) : b.day;   // runs past midnight
+    L.push('BEGIN:VEVENT', `UID:plan-${b.id}@pomegranate`, `DTSTAMP:${stamp}`,
+      `DTSTART:${icsDate(b.day)}T${b.start.replace(':', '')}00`, `DTEND:${icsDate(endDay)}T${b.end.replace(':', '')}00`,
+      `SUMMARY:${icsText((b.done ? '✓ ' : '') + b.title)}`, 'END:VEVENT');
+  }
+  L.push('END:VCALENDAR');
+  return L.map(fold).join('\r\n') + '\r\n';
+}
+
+exports.calendarFeed = onRequest({ cors: false, memory: '256MiB', maxInstances: 3 }, async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.status(405).send('Method not allowed'); return; }
+  const { u, k } = req.query || {};
+  if (!validUid(u) || !validKey(k)) { res.status(404).send('Not found'); return; }
+  const keyDoc = await db.doc(`users/${u}/calfeed/key`).get();
+  if (!keyDoc.exists || !sameKey(keyDoc.data().key, k)) { res.status(404).send('Not found'); return; }
+  if (!await allowed(u, 'feed')) { res.set('Retry-After', '600').status(429).send('Too many requests'); return; }
+  const [tasks, plan] = await Promise.all(['tasks', 'plan'].map(async kind =>
+    (await db.collection(`users/${u}/${kind}`).get()).docs.map(d => ({ ...d.data(), id: d.id }))));
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', 'inline; filename="pomegranate.ics"');
+  res.set('Cache-Control', 'private, max-age=300');
+  res.status(200).send(buildCalendar(tasks, plan, Date.now()));
+});
+
 if (process.env.POMEGRANATE_TEST) {   // for tests (test.js)
+  exports._buildCalendar = buildCalendar;
   exports._upcomingAlerts = upcomingAlerts;
   exports._validState = validState;
   exports._checkLimit = checkLimit;

@@ -108,3 +108,19 @@ shows running jobs, DONE! alerts and plan usage on the OLED (see `claudestatus.j
 - **Testing by hand:** Firebase console → Firestore → `users/<uid>/robot/claude` → set a `jobs` map with one
   entry (`state: "running"`, `name`, `updatedAt` = now in epoch ms, `startedAt` = a minute ago). The board shows it
   within a second or two. Then change `state` to `"done"` and add `finishedAt` = now: DONE! and a chime.
+
+## Calendar feed (Apple Calendar)
+The `calendarFeed` function serves a read-only calendar of your open tasks (all-day, on their due
+date) and your Plan your day blocks (at their times). Apple Calendar, Google Calendar and Outlook can
+subscribe to it. The link carries a random key saved in `users/{uid}/calfeed/key`; the function checks it
+and answers 404 to anything else. Each feed is limited to 10 fetches a minute and 120 an hour.
+
+1. From this `cloud` folder, deploy the rules and the function:
+   ```
+   firebase deploy --only firestore:rules,functions
+   ```
+2. In the app: ⚙ Settings → Sync → **Calendar feed (Apple Calendar)** → **Make my calendar link**.
+3. On iPhone/iPad/Mac tap **Add to Apple Calendar** (or Calendar → File → New Calendar Subscription and paste
+   the link). On iPhone, Settings → Calendar → Accounts → Subscribed Calendars → Fetch sets how often it updates.
+4. Anyone with the link can read the calendar. **Reset link** makes a new key (the old link stops working);
+   **Turn off** deletes the key.

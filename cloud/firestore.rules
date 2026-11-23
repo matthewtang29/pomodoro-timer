@@ -236,6 +236,20 @@ service cloud.firestore {
         }
       }
 
+      // ---------------------------------------------------------------- calfeed/key
+      // rule                                         | written by
+      // id 'key' only                                | sync.js calendarFeed(): users/{uid}/calfeed/key
+      // key: 32-64 letters/digits                    | sync.js newFeedKey(): 40 random base62 characters
+      // created: number                              | Date.now()
+      // <= 4 keys                                    | { key, created }
+      // (the cloud function calendarFeed reads it with the admin SDK to check the link's k=)
+      match /calfeed/{docId} {
+        allow read, delete: if owner(uid);
+        allow create, update: if owner(uid) && docId == 'key' && request.resource.data.size() <= 4
+          && request.resource.data.get('key', null) is string && request.resource.data.key.matches('^[A-Za-z0-9]{32,64}$')
+          && request.resource.data.get('created', null) is number;
+      }
+
       // ---------------------------------------------------------------- robot/claude
       // Claude Code status for the desk robot (users/{uid}/robot/claude). Written only by the
       // laptop script with the Admin SDK, which skips these rules. The owner can read it, and
