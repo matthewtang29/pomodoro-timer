@@ -2,7 +2,7 @@
 // One page that sums up the day and the week before it: focus, score, tasks due,
 // last night's sleep, and the past 7 days of focus, sleep, habits and day ratings.
 // Everything here is read from the other pages' data; habits can be ticked off
-// right here, tasks due today can be checked, and today can be planned out as time blocks.
+// right here, upcoming tasks can be checked off, and today can be planned out as time blocks.
 
 function dashDays(n) {   // the last n day keys, oldest first, ending today
   const today = todayKey();
@@ -122,24 +122,8 @@ function renderDashboard() {
     $('dbHabitsPct').textContent = `${Math.round(yes / (list.length * 7) * 100)}% this week`;
   } else $('dbHabitsPct').textContent = '';
 
-  // ---------------- tasks due today (and overdue)
-  const tl = $('dbTaskList');
-  tl.textContent = '';
-  const due = sortTasks(open).slice(0, 6);
-  $('dbTasksEmpty').hidden = due.length > 0;
-  $('dbTasksEmpty').textContent = doneToday.length ? 'Everything due today is done.' : 'Nothing due today.';
-  due.forEach(t => {
-    const row = el('div', 'db-task');
-    const chk = el('button', 'db-check');
-    chk.type = 'button';
-    chk.setAttribute('aria-label', `Mark “${t.title}” done`);
-    chk.addEventListener('click', () => { setTaskDone(t.id, true); renderDashboard(); });
-    const meta = t.due < today ? 'overdue' : DIFF_LABEL[t.difficulty] || '';
-    row.append(chk, el('span', 'db-ttitle', t.title), el('span', 'db-tmeta' + (t.due < today ? ' overdue' : ''), meta));
-    tl.append(row);
-  });
-  $('dbTasksMore').hidden = open.length <= due.length;
-  $('dbTasksMore').textContent = `+${open.length - due.length} more`;
+  // ---------------- upcoming tasks
+  renderUpcoming();
 
   // ---------------- plan your day
   renderPlan(open);
@@ -169,6 +153,127 @@ function renderDashboard() {
   });
   $('dbMoodAvg').textContent = rated ? `avg ${(sum / rated).toFixed(1)}` : '';
 }
+
+// ================================================================= UPCOMING
+// Every open task (overdue first when sorted by date, tasks with no date last), as many as fit
+// in the box. The sort and the hidden projects are a view setting kept on this device:
+//   { sort: 'due' | 'difficulty' | 'priority' | 'project', hidden: ['proj', ''] }  ('' = no project)
+const UPCOMING_KEY = 'pomodoro-upcoming-v1';
+const UPCOMING_SORTS = ['due', 'difficulty', 'priority', 'project'];
+let upcomingPrefs = loadUpcomingPrefs();
+
+function loadUpcomingPrefs() {
+  const out = { sort: 'due', hidden: [] };
+  try {
+    const d = JSON.parse(localStorage.getItem(UPCOMING_KEY));
+    if (isPlainObj(d)) {
+      if (UPCOMING_SORTS.includes(d.sort)) out.sort = d.sort;
+      if (Array.isArray(d.hidden)) out.hidden = d.hidden.filter(p => typeof p === 'string');
+    }
+  } catch (e) {}
+  return out;
+}
+function saveUpcomingPrefs() { safeSetItem(UPCOMING_KEY, JSON.stringify(upcomingPrefs)); }
+
+const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999');
+const byHard = (a, b) => diffLevel(b.difficulty) - diffLevel(a.difficulty);
+const byHigh = (a, b) => isHigh(b) - isHigh(a);
+const byProject = (a, b) => (!a.project) - (!b.project) || (a.project || '').localeCompare(b.project || '');
+const UPCOMING_ORDER = {
+  due: [byDue, byHigh, byHard],
+  difficulty: [byHard, byDue, byHigh],
+  priority: [byHigh, byDue, byHard],
+  project: [byProject, byDue, byHigh, byHard],
+};
+function sortUpcoming(list, sort) {
+  const cmps = UPCOMING_ORDER[sort] || UPCOMING_ORDER.due;
+  return list.slice().sort((a, b) => { for (const c of cmps) { const r = c(a, b); if (r) return r; } return a.created - b.created; });
+}
+
+function renderUpcoming() {
+  const today = todayKey();
+  const hidden = new Set(upcomingPrefs.hidden);
+  const allOpen = tasks.items.filter(t => !t.done);
+  const list = sortUpcoming(allOpen.filter(t => !hidden.has(t.project || '')), upcomingPrefs.sort);
+
+  $('dbSort').value = upcomingPrefs.sort;
+
+  // project checklist (only projects that exist; "No project" when some task has none)
+  const pop = $('dbProjsList');
+  pop.textContent = '';
+  const names = projects();
+  if (tasks.items.some(t => !t.project)) names.push('');
+  names.forEach(p => {
+    const lab = el('label', 'db-proj');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = !hidden.has(p);
+    box.addEventListener('change', () => {
+      const s = new Set(upcomingPrefs.hidden);
+      if (box.checked) s.delete(p); else s.add(p);
+      upcomingPrefs.hidden = [...s];
+      saveUpcomingPrefs();
+      renderUpcoming();
+    });
+    lab.append(box, el('span', p ? null : 'none', p ? '#' + p : 'No project'));
+    pop.append(lab);
+  });
+  if (!names.length) pop.append(el('p', 'empty-msg', 'No projects yet.'));
+  const nHidden = names.filter(p => hidden.has(p)).length;
+  $('dbProjsBtn').textContent = nHidden ? `Projects · ${nHidden} hidden` : 'Projects';
+
+  const tl = $('dbTaskList');
+  tl.textContent = '';
+  $('dbTasksEmpty').hidden = list.length > 0;
+  $('dbTasksEmpty').textContent = allOpen.length ? 'Every open task is in a hidden project.' : 'No open tasks. Nice.';
+  list.slice(0, 60).forEach(t => {
+    const row = el('div', 'db-task');
+    const chk = el('button', 'db-check' + (isHigh(t) ? ' hi' : ''));
+    chk.type = 'button';
+    chk.setAttribute('aria-label', `Mark “${t.title}” done`);
+    chk.addEventListener('click', () => { setTaskDone(t.id, true); renderDashboard(); });
+    const title = el('span', 'db-ttitle', t.title);
+    title.title = `${t.title}\n${priLabel(t.priority || 4)} priority · ${DIFF_LABEL[t.difficulty] || 'Medium'}` + (t.project ? ` · #${t.project}` : '');
+    const late = t.due && t.due < today;
+    const meta = el('span', 'db-tmeta');
+    if (t.project) meta.append(el('span', 'db-tproj', '#' + t.project));
+    meta.append(el('span', null, DIFF_LABEL[t.difficulty] || 'Medium'));
+    meta.append(el('span', 'db-tdue' + (late ? ' overdue' : ''), late ? 'Overdue' : t.due ? fmtDue(t.due) : 'No date'));
+    row.append(chk, title, meta);
+    tl.append(row);
+  });
+  upcomingFit();
+}
+
+// Shows only the rows that fit in the box and counts the rest as "+N more".
+function upcomingFit() {
+  const tl = $('dbTaskList');
+  const rows = [...tl.children];
+  rows.forEach(r => { r.hidden = false; });
+  const room = tl.parentElement.clientHeight;
+  let shown = rows.length;
+  if (room > 0 && tl.parentElement.offsetParent && getComputedStyle(tl).position === 'absolute') {
+    shown = rows.findIndex(r => r.offsetTop + r.offsetHeight > room + 1);
+    if (shown < 0) shown = rows.length;
+    rows.slice(shown).forEach(r => { r.hidden = true; });
+  } else if (rows.length > 8) {   // phone layout: the box isn't a fixed height, so show eight
+    shown = 8;
+    rows.slice(8).forEach(r => { r.hidden = true; });
+  }
+  const total = tasks.items.filter(t => !t.done && !upcomingPrefs.hidden.includes(t.project || '')).length;
+  $('dbTasksMore').hidden = total <= shown;
+  $('dbTasksMore').textContent = `+${total - shown} more`;
+}
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => upcomingFit()).observe(document.querySelector('.db-tfit'));
+
+$('dbSort').addEventListener('change', () => {
+  upcomingPrefs.sort = UPCOMING_SORTS.includes($('dbSort').value) ? $('dbSort').value : 'due';
+  saveUpcomingPrefs();
+  renderUpcoming();
+});
+// the project list closes on a click outside it or Esc
+document.addEventListener('click', e => { const d = $('dbProjs'); if (d.open && !d.contains(e.target)) d.open = false; });
+$('dbProjs').addEventListener('keydown', e => { if (e.key === 'Escape') { $('dbProjs').open = false; $('dbProjsBtn').focus(); } });
 
 // ================================================================= PLAN YOUR DAY
 // Time blocks for today, drawn as a one-day calendar where each block's height is its length:

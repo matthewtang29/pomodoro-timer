@@ -22,7 +22,7 @@
 <link rel="icon" href="icons/icon.svg?v=4" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png?v=4">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=2026.11.20a">
+<link rel="stylesheet" href="style.css?v=2026.11.22a">
 <script>
   // Apply the saved theme before the page draws, so there's no flash of the default colors
   (function () {
@@ -180,9 +180,23 @@
         </section>
 
         <section class="db-card db-due">
-          <div class="db-head"><h3>Due today</h3><span id="dbTasksMore" hidden></span><button type="button" class="db-link" data-goto="tasks">Tasks →</button></div>
+          <div class="db-head"><h3>Upcoming</h3><span id="dbTasksMore" hidden></span><button type="button" class="db-link" data-goto="tasks">Tasks →</button></div>
+          <div class="db-tools">
+            <label class="db-sort">Sort
+              <select id="dbSort" aria-label="Sort upcoming tasks by">
+                <option value="due">Due date</option>
+                <option value="difficulty">Difficulty</option>
+                <option value="priority">Priority</option>
+                <option value="project">Project</option>
+              </select>
+            </label>
+            <details class="db-projs" id="dbProjs">
+              <summary id="dbProjsBtn">Projects</summary>
+              <div class="db-projs-pop" id="dbProjsList" role="group" aria-label="Projects to show"></div>
+            </details>
+          </div>
           <p class="empty-msg" id="dbTasksEmpty"></p>
-          <div id="dbTaskList"></div>
+          <div class="db-tfit"><div id="dbTaskList"></div></div>
         </section>
       </div>
 
@@ -576,25 +590,25 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="boardsync.js?v=2026.11.20a"></script>
-<script src="claudestatus.js?v=2026.11.20a"></script>
-<script src="app.js?v=2026.11.20a"></script>
-<script src="localtimer.js?v=2026.11.20a"></script>
-<script src="notify.js?v=2026.11.20a"></script>
-<script src="score.js?v=2026.11.20a"></script>
-<script src="analytics.js?v=2026.11.20a"></script>
-<script src="tasks.js?v=2026.11.20a"></script>
-<script src="calendar.js?v=2026.11.20a"></script>
-<script src="journal.js?v=2026.11.20a"></script>
-<script src="journalvideo.js?v=2026.11.20a"></script>
-<script src="habits.js?v=2026.11.20a"></script>
-<script src="sleep.js?v=2026.11.20a"></script>
-<script src="dashboard.js?v=2026.11.20a"></script>
-<script src="sync.js?v=2026.11.20a"></script>
-<script src="livesync.js?v=2026.11.20a"></script>
-<script src="push.js?v=2026.11.20a"></script>
-<script src="theme.js?v=2026.11.20a"></script>
-<script src="shortcuts.js?v=2026.11.20a"></script>
-<script src="main.js?v=2026.11.20a"></script>
+<script src="boardsync.js?v=2026.11.22a"></script>
+<script src="claudestatus.js?v=2026.11.22a"></script>
+<script src="app.js?v=2026.11.22a"></script>
+<script src="localtimer.js?v=2026.11.22a"></script>
+<script src="notify.js?v=2026.11.22a"></script>
+<script src="score.js?v=2026.11.22a"></script>
+<script src="analytics.js?v=2026.11.22a"></script>
+<script src="tasks.js?v=2026.11.22a"></script>
+<script src="calendar.js?v=2026.11.22a"></script>
+<script src="journal.js?v=2026.11.22a"></script>
+<script src="journalvideo.js?v=2026.11.22a"></script>
+<script src="habits.js?v=2026.11.22a"></script>
+<script src="sleep.js?v=2026.11.22a"></script>
+<script src="dashboard.js?v=2026.11.22a"></script>
+<script src="sync.js?v=2026.11.22a"></script>
+<script src="livesync.js?v=2026.11.22a"></script>
+<script src="push.js?v=2026.11.22a"></script>
+<script src="theme.js?v=2026.11.22a"></script>
+<script src="shortcuts.js?v=2026.11.22a"></script>
+<script src="main.js?v=2026.11.22a"></script>
 </body>
 </html>
