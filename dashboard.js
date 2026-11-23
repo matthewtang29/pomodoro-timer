@@ -155,48 +155,27 @@ function renderDashboard() {
 }
 
 // ================================================================= UPCOMING
-// Every open task (overdue first when sorted by date, tasks with no date last), as many as fit
-// in the box. The sort and the hidden projects are a view setting kept on this device:
-//   { sort: 'due' | 'difficulty' | 'priority' | 'project', hidden: ['proj', ''] }  ('' = no project)
+// Every open task by due date (overdue first, no date last), as many as fit in the box.
+// The hidden projects are a view setting kept on this device:
+//   { hidden: ['proj', ''] }  ('' = no project). Sorting lives on the Tasks tab (tasks.js).
 const UPCOMING_KEY = 'pomodoro-upcoming-v1';
-const UPCOMING_SORTS = ['due', 'difficulty', 'priority', 'project'];
 let upcomingPrefs = loadUpcomingPrefs();
 
 function loadUpcomingPrefs() {
-  const out = { sort: 'due', hidden: [] };
+  const out = { hidden: [] };
   try {
     const d = JSON.parse(localStorage.getItem(UPCOMING_KEY));
-    if (isPlainObj(d)) {
-      if (UPCOMING_SORTS.includes(d.sort)) out.sort = d.sort;
-      if (Array.isArray(d.hidden)) out.hidden = d.hidden.filter(p => typeof p === 'string');
-    }
+    if (isPlainObj(d) && Array.isArray(d.hidden)) out.hidden = d.hidden.filter(p => typeof p === 'string');
   } catch (e) {}
   return out;
 }
 function saveUpcomingPrefs() { safeSetItem(UPCOMING_KEY, JSON.stringify(upcomingPrefs)); }
 
-const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999');
-const byHard = (a, b) => diffLevel(b.difficulty) - diffLevel(a.difficulty);
-const byHigh = (a, b) => isHigh(b) - isHigh(a);
-const byProject = (a, b) => (!a.project) - (!b.project) || (a.project || '').localeCompare(b.project || '');
-const UPCOMING_ORDER = {
-  due: [byDue, byHigh, byHard],
-  difficulty: [byHard, byDue, byHigh],
-  priority: [byHigh, byDue, byHard],
-  project: [byProject, byDue, byHigh, byHard],
-};
-function sortUpcoming(list, sort) {
-  const cmps = UPCOMING_ORDER[sort] || UPCOMING_ORDER.due;
-  return list.slice().sort((a, b) => { for (const c of cmps) { const r = c(a, b); if (r) return r; } return a.created - b.created; });
-}
-
 function renderUpcoming() {
   const today = todayKey();
   const hidden = new Set(upcomingPrefs.hidden);
   const allOpen = tasks.items.filter(t => !t.done);
-  const list = sortUpcoming(allOpen.filter(t => !hidden.has(t.project || '')), upcomingPrefs.sort);
-
-  $('dbSort').value = upcomingPrefs.sort;
+  const list = sortTasksBy(allOpen.filter(t => !hidden.has(t.project || '')), 'due');
 
   // project checklist (only projects that exist; "No project" when some task has none)
   const pop = $('dbProjsList');
@@ -266,11 +245,6 @@ function upcomingFit() {
 }
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => upcomingFit()).observe(document.querySelector('.db-tfit'));
 
-$('dbSort').addEventListener('change', () => {
-  upcomingPrefs.sort = UPCOMING_SORTS.includes($('dbSort').value) ? $('dbSort').value : 'due';
-  saveUpcomingPrefs();
-  renderUpcoming();
-});
 // the project list closes on a click outside it or Esc
 document.addEventListener('click', e => { const d = $('dbProjs'); if (d.open && !d.contains(e.target)) d.open = false; });
 $('dbProjs').addEventListener('keydown', e => { if (e.key === 'Escape') { $('dbProjs').open = false; $('dbProjsBtn').focus(); } });

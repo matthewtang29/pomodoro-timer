@@ -394,6 +394,26 @@ function sortTasks(list) {
     a.created - b.created);
 }
 
+// The Sort menu on the Tasks tab. "project" groups by project (hardest first inside each);
+// the others are one list in that order. Kept on this device.
+const TASK_SORT_KEY = 'pomodoro-task-sort';
+const TASK_SORTS = ['project', 'due', 'difficulty', 'priority'];
+let taskSort = (() => { try { const s = localStorage.getItem(TASK_SORT_KEY); return TASK_SORTS.includes(s) ? s : 'project'; } catch (e) { return 'project'; } })();
+
+const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999');
+const byHard = (a, b) => diffLevel(b.difficulty) - diffLevel(a.difficulty);
+const byHigh = (a, b) => isHigh(b) - isHigh(a);
+const SORT_ORDER = {
+  due: [byDue, byHigh, byHard],
+  difficulty: [byHard, byDue, byHigh],
+  priority: [byHigh, byDue, byHard],
+};
+// Sorts by due date, difficulty or priority (undated tasks last when by date)
+function sortTasksBy(list, sort) {
+  const cmps = SORT_ORDER[sort] || SORT_ORDER.due;
+  return list.slice().sort((a, b) => { for (const c of cmps) { const r = c(a, b); if (r) return r; } return a.created - b.created; });
+}
+
 const VIEW_LEVEL = { easy: 1, medium: 2, hard: 3 };
 const VIEW_TITLE = { easy: 'Easy tasks', medium: 'Medium tasks', hard: 'Hard tasks', all: 'All tasks', done: 'Done' };
 
@@ -408,11 +428,15 @@ function renderTasks() {
     // Easy / Medium / Hard show one difficulty; All shows every open task. Grouped by project.
     const lvl = VIEW_LEVEL[taskView];
     if (lvl) open = open.filter(t => diffLevel(t.difficulty) === lvl);
-    const byProj = {};
-    sortTasks(open).forEach(t => (byProj[t.project || ''] = byProj[t.project || ''] || []).push(t));
-    Object.keys(byProj).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).forEach(p => {
-      groups.push({ title: p ? '# ' + p : 'No project', items: byProj[p] });
-    });
+    if (taskSort === 'project') {
+      const byProj = {};
+      sortTasks(open).forEach(t => (byProj[t.project || ''] = byProj[t.project || ''] || []).push(t));
+      Object.keys(byProj).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).forEach(p => {
+        groups.push({ title: p ? '# ' + p : 'No project', items: byProj[p] });
+      });
+    } else if (open.length) {
+      groups.push({ title: VIEW_TITLE[taskView], items: sortTasksBy(open, taskSort) });
+    }
     if (!groups.length) groups.push({ title: VIEW_TITLE[taskView], items: [],
       empty: lvl ? `No open ${VIEW_TITLE[taskView].toLowerCase()}.` : 'No open tasks. Nice.' });
   } else {
@@ -730,6 +754,12 @@ function setTaskView(v) {
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setTaskView(b.dataset.view)));
 $('projFilter').addEventListener('change', () => { projFilter = $('projFilter').value; qaFollowProject(); renderTasks(); });
 $('projDelete').addEventListener('click', () => { if (projFilter) deleteProject(projFilter); });
+$('taskSort').value = taskSort;
+$('taskSort').addEventListener('change', () => {
+  taskSort = TASK_SORTS.includes($('taskSort').value) ? $('taskSort').value : 'project';
+  safeSetItem(TASK_SORT_KEY, taskSort);
+  renderTasks();
+});
 
 function renderProjectLists() {
   const ps = projects();
