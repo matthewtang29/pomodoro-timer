@@ -1073,7 +1073,8 @@ table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
   .db-stat:nth-child(n+3) { border-top: 1px solid var(--line); }
   .db-grid { grid-template-columns: minmax(0, 1fr); }
   .db-card { padding: 14px; }
-  .db-tfit { min-height: 0; }
+  .db-due { min-height: auto; }
+  .db-tfit { flex: none; min-height: 0; }
   .db-tfit > #dbTaskList { position: static; }
   .side-projects { display: none; }
   .content { padding: 22px 16px 48px; }
