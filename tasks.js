@@ -414,6 +414,10 @@ function sortTasksBy(list, sort) {
   return list.slice().sort((a, b) => { for (const c of cmps) { const r = c(a, b); if (r) return r; } return a.created - b.created; });
 }
 
+// Project groups folded shut on the Tasks tab ('' = No project). Kept on this device.
+const FOLDED_KEY = 'pomodoro-folded-projects';
+const foldedProjects = new Set((() => { try { const a = JSON.parse(localStorage.getItem(FOLDED_KEY)); return Array.isArray(a) ? a.filter(x => typeof x === 'string') : []; } catch (e) { return []; } })());
+
 const VIEW_LEVEL = { easy: 1, medium: 2, hard: 3 };
 const VIEW_TITLE = { easy: 'Easy tasks', medium: 'Medium tasks', hard: 'Hard tasks', all: 'All tasks', done: 'Done' };
 
@@ -432,7 +436,7 @@ function renderTasks() {
       const byProj = {};
       sortTasks(open).forEach(t => (byProj[t.project || ''] = byProj[t.project || ''] || []).push(t));
       Object.keys(byProj).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).forEach(p => {
-        groups.push({ title: p ? '# ' + p : 'No project', items: byProj[p] });
+        groups.push({ title: p ? '# ' + p : 'No project', items: byProj[p], proj: p });
       });
     } else if (open.length) {
       groups.push({ title: VIEW_TITLE[taskView], items: sortTasksBy(open, taskSort) });
@@ -450,13 +454,31 @@ function renderTasks() {
 
   groups.forEach(g => {
     const sec = el('section', 'task-group');
-    const h = el('h4', g.cls || '', g.title);
+    // project groups fold away: the arrow hides or shows that project's tasks
+    const foldable = typeof g.proj === 'string';
+    const folded = foldable && foldedProjects.has(g.proj);
+    const h = el('h4', g.cls || '', foldable ? null : g.title);
+    if (foldable) {
+      const fold = el('button', 'task-fold');
+      fold.type = 'button';
+      fold.setAttribute('aria-expanded', String(!folded));
+      fold.append(el('i', null, '▾'), document.createTextNode(g.title));
+      fold.addEventListener('click', () => {
+        if (foldedProjects.has(g.proj)) foldedProjects.delete(g.proj); else foldedProjects.add(g.proj);
+        safeSetItem(FOLDED_KEY, JSON.stringify([...foldedProjects]));
+        renderTasks();
+        const again = [...$('taskList').querySelectorAll('.task-fold')].find(b => b.textContent.slice(1) === g.title);
+        if (again) again.focus();
+      });
+      h.append(fold);
+      if (folded) sec.classList.add('folded');
+    }
     const pts = g.items.reduce((a, t) => a + t.difficulty, 0);
     if (g.items.length && !g.plain) h.append(el('span', null, `${g.items.length} task${g.items.length > 1 ? 's' : ''} · ${pts} pts`));
     else if (g.sub && !g.plain) h.append(el('span', null, g.sub));
     if (!g.noHead) sec.append(h);
     if (!g.items.length && g.empty) sec.append(el('div', 'task-empty', g.empty));
-    g.items.forEach(t => sec.append(t.id === editingId ? taskEditor(t) : taskRow(t)));
+    if (!folded) g.items.forEach(t => sec.append(t.id === editingId ? taskEditor(t) : taskRow(t)));
     box.append(sec);
   });
 

@@ -323,6 +323,11 @@ pre#log {
 .task-group h4 { display: flex; align-items: baseline; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600; }
 .task-group h4 span { font-weight: 400; color: var(--faint); }
 .task-group h4 span::before { content: "· "; }
+.task-fold { display: inline-flex; align-items: center; gap: 6px; height: auto; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
+.task-fold:hover:not(:disabled) { background: none; color: var(--accent-soft); }
+.task-fold i { display: inline-block; width: 14px; font-style: normal; font-size: 14px; line-height: 1; color: var(--muted); transition: transform .15s; }
+.task-group.folded .task-fold i { transform: rotate(-90deg); }
+.task-group.folded h4 { color: var(--muted); }
 .task-group h4.overdue { color: var(--peach-ink); }
 .task-group h4.done-head { border: 0; padding-bottom: 4px; font-size: 15px; font-weight: 500; color: var(--muted); }
 .task { display: flex; align-items: center; gap: 16px; padding: 14px 4px; border-bottom: 1px solid var(--line); }
